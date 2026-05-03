@@ -1,0 +1,30 @@
+{
+  "units": [
+    {
+      "id": 0,
+      "name": "UnitName",
+      "cost": 1,
+      "hp": 600,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 55,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 150,
+      "ability_type": "damage",
+      "mana_cost": 60,
+      "traits": ["TraitA", "TraitB"]
+    }
+  ],
+  "traits": [
+    {
+      "name": "TraitA",
+      "breakpoints": [2, 4, 6],
+      "effects": {
+        "2": {"hp_multiplier": 1.15},
+        "4": {"hp_multiplier": 1.35},
+        "6": {"hp_multiplier": 1.60}
+      }
+    }
+  ]
+}
