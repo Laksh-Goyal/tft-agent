@@ -14,7 +14,11 @@ class TFTEnv(gym.Env):
         self.action_space = get_action_space()
         
         # Initialize a dummy game to determine the observation space shape dynamically
-        dummy_game = GameState(n_players=self.n_players, unit_roster_path=self.unit_roster_path)
+        dummy_game = GameState(
+            n_players=self.n_players,
+            unit_roster_path=self.unit_roster_path,
+            rng=np.random.default_rng(0),
+        )
         obs_shape = dummy_game.to_observation().shape
         
         # We allow high=1.0 for normalized, but some could exceed slightly, so high=inf is safer
@@ -23,7 +27,11 @@ class TFTEnv(gym.Env):
         
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        self.game = GameState(n_players=self.n_players, unit_roster_path=self.unit_roster_path)
+        self.game = GameState(
+            n_players=self.n_players,
+            unit_roster_path=self.unit_roster_path,
+            rng=self.np_random,
+        )
         self.game.start_round()
         obs = self.game.to_observation()
         info = {"action_mask": self.game.action_mask()}

@@ -1,6 +1,7 @@
-import random
 from collections import defaultdict
-from typing import List
+from typing import List, Optional
+
+import numpy as np
 
 POOL_SIZES = {
     1: 45,
@@ -52,32 +53,36 @@ class PoolManager:
                 cost = unit_db.get_unit_base_data(uid)['cost']
                 self.return_unit(uid, cost)
 
-def sample_cost_tier(level: int) -> int:
+def sample_cost_tier(level: int, rng: Optional[np.random.Generator] = None) -> int:
     odds = SHOP_ODDS.get(level, SHOP_ODDS[9])
-    r = random.random()
+    if rng is None:
+        rng = np.random.default_rng()
+    r = float(rng.random())
     cumulative = 0.0
     for cost, prob in odds.items():
         cumulative += prob
         if r <= cumulative:
             return cost
-    return 1 # Fallback
+    return 1  # Fallback
 
-def roll_shop(player, pool_manager, unit_db) -> List[int]:
+def roll_shop(player, pool_manager, unit_db, rng: Optional[np.random.Generator] = None) -> List[int]:
+    if rng is None:
+        rng = np.random.default_rng()
     shop = []
     for _ in range(5):
-        cost_tier = sample_cost_tier(player.level)
+        cost_tier = sample_cost_tier(player.level, rng)
         available = pool_manager.get_available(cost_tier)
         if available:
-            unit_id = random.choice(available)
+            unit_id = int(rng.choice(available))
             pool_manager.reserve(unit_id, cost_tier)
             shop.append(unit_id)
         else:
             shop.append(None)
     return shop
 
-def reroll(player, pool_manager, unit_db):
-    if player.gold < 2: 
+def reroll(player, pool_manager, unit_db, rng: Optional[np.random.Generator] = None):
+    if player.gold < 2:
         return
     pool_manager.return_units(player.current_shop, unit_db)
     player.gold -= 2
-    player.current_shop = roll_shop(player, pool_manager, unit_db)
+    player.current_shop = roll_shop(player, pool_manager, unit_db, rng)
