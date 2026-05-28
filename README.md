@@ -41,7 +41,7 @@ From the repo root (with the venv active):
 pytest -q
 ```
 
-Tests cover combat, action masking, stage round limits, reproducible RNG seeding, uniform PvP damage, and a minimal Gymnasium smoke check.
+Tests cover combat, action masking, stage round limits, reproducible RNG seeding, uniform PvP damage, roster loading, and a minimal Gymnasium smoke check.
 
 ## Quick smoke check
 
@@ -62,10 +62,10 @@ print('obs shape:', obs.shape, 'reward:', r)
 - Gymnasium environment with masked discrete actions (~127)
 - Shop pool, leveling, auto-combine, DPS combat with traits
 - Correctness fixes: uniform PvP damage, combat ties, stage-5 round cap, seeded RNG, illegal actions raise `ValueError`
+- Placeholder roster: 30 units (10/8/6/4/2 by cost) and 10 traits (`Origin1`–`Origin4`, `Class1`–`Class6`) in [`tft_sim/data/unit_roster.json`](tft_sim/data/unit_roster.json) — names, stats, and effects are for you to replace
 
 **Not yet implemented**
 
 - Scripted opponent bots (opponents do not plan or build boards)
 - Carousel / PvE creep round types (all rounds use PvP-style pairing today)
-- Full unit roster (placeholder roster in `unit_roster.json`)
 - RL training (`train.py`, MaskablePPO)

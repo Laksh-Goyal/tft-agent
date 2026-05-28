@@ -2,7 +2,7 @@
   "units": [
     {
       "id": 0,
-      "name": "UnitName",
+      "name": "Unit_01",
       "cost": 1,
       "hp": 600,
       "armor": 40,
@@ -13,17 +13,739 @@
       "ability_damage": 150,
       "ability_type": "damage",
       "mana_cost": 60,
-      "traits": ["TraitA", "TraitB"]
+      "traits": [
+        "Origin1",
+        "Class1"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "Unit_02",
+      "cost": 1,
+      "hp": 600,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 55,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 150,
+      "ability_type": "heal",
+      "mana_cost": 60,
+      "traits": [
+        "Origin2",
+        "Class2"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Unit_03",
+      "cost": 1,
+      "hp": 600,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 55,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 150,
+      "ability_type": "shield",
+      "mana_cost": 60,
+      "traits": [
+        "Origin3",
+        "Class3"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Unit_04",
+      "cost": 1,
+      "hp": 600,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 55,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 150,
+      "ability_type": "cc",
+      "mana_cost": 60,
+      "traits": [
+        "Origin4",
+        "Class4"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "Unit_05",
+      "cost": 1,
+      "hp": 600,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 55,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 150,
+      "ability_type": "damage",
+      "mana_cost": 60,
+      "traits": [
+        "Origin1",
+        "Class5"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "Unit_06",
+      "cost": 1,
+      "hp": 600,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 55,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 150,
+      "ability_type": "heal",
+      "mana_cost": 60,
+      "traits": [
+        "Origin2",
+        "Class6"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "Unit_07",
+      "cost": 1,
+      "hp": 600,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 55,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 150,
+      "ability_type": "shield",
+      "mana_cost": 60,
+      "traits": [
+        "Origin3",
+        "Class1"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "Unit_08",
+      "cost": 1,
+      "hp": 600,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 55,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 150,
+      "ability_type": "cc",
+      "mana_cost": 60,
+      "traits": [
+        "Origin4",
+        "Class2"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "Unit_09",
+      "cost": 1,
+      "hp": 600,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 55,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 150,
+      "ability_type": "damage",
+      "mana_cost": 60,
+      "traits": [
+        "Origin1",
+        "Class3"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "Unit_10",
+      "cost": 1,
+      "hp": 600,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 55,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 150,
+      "ability_type": "heal",
+      "mana_cost": 60,
+      "traits": [
+        "Origin2",
+        "Class4"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "Unit_11",
+      "cost": 2,
+      "hp": 690,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 63,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 172,
+      "ability_type": "shield",
+      "mana_cost": 60,
+      "traits": [
+        "Origin3",
+        "Class5"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "Unit_12",
+      "cost": 2,
+      "hp": 690,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 63,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 172,
+      "ability_type": "cc",
+      "mana_cost": 60,
+      "traits": [
+        "Origin4",
+        "Class6"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "Unit_13",
+      "cost": 2,
+      "hp": 690,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 63,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 172,
+      "ability_type": "damage",
+      "mana_cost": 60,
+      "traits": [
+        "Origin1",
+        "Class1"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "Unit_14",
+      "cost": 2,
+      "hp": 690,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 63,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 172,
+      "ability_type": "heal",
+      "mana_cost": 60,
+      "traits": [
+        "Origin2",
+        "Class2"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "Unit_15",
+      "cost": 2,
+      "hp": 690,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 63,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 172,
+      "ability_type": "shield",
+      "mana_cost": 60,
+      "traits": [
+        "Origin3",
+        "Class3"
+      ]
+    },
+    {
+      "id": 15,
+      "name": "Unit_16",
+      "cost": 2,
+      "hp": 690,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 63,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 172,
+      "ability_type": "cc",
+      "mana_cost": 60,
+      "traits": [
+        "Origin4",
+        "Class4"
+      ]
+    },
+    {
+      "id": 16,
+      "name": "Unit_17",
+      "cost": 2,
+      "hp": 690,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 63,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 172,
+      "ability_type": "damage",
+      "mana_cost": 60,
+      "traits": [
+        "Origin1",
+        "Class5"
+      ]
+    },
+    {
+      "id": 17,
+      "name": "Unit_18",
+      "cost": 2,
+      "hp": 690,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 63,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 172,
+      "ability_type": "heal",
+      "mana_cost": 60,
+      "traits": [
+        "Origin2",
+        "Class6"
+      ]
+    },
+    {
+      "id": 18,
+      "name": "Unit_19",
+      "cost": 3,
+      "hp": 780,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 72,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 195,
+      "ability_type": "shield",
+      "mana_cost": 60,
+      "traits": [
+        "Origin3",
+        "Class1"
+      ]
+    },
+    {
+      "id": 19,
+      "name": "Unit_20",
+      "cost": 3,
+      "hp": 780,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 72,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 195,
+      "ability_type": "cc",
+      "mana_cost": 60,
+      "traits": [
+        "Origin4",
+        "Class2"
+      ]
+    },
+    {
+      "id": 20,
+      "name": "Unit_21",
+      "cost": 3,
+      "hp": 780,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 72,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 195,
+      "ability_type": "damage",
+      "mana_cost": 60,
+      "traits": [
+        "Origin1",
+        "Class3"
+      ]
+    },
+    {
+      "id": 21,
+      "name": "Unit_22",
+      "cost": 3,
+      "hp": 780,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 72,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 195,
+      "ability_type": "heal",
+      "mana_cost": 60,
+      "traits": [
+        "Origin2",
+        "Class4"
+      ]
+    },
+    {
+      "id": 22,
+      "name": "Unit_23",
+      "cost": 3,
+      "hp": 780,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 72,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 195,
+      "ability_type": "shield",
+      "mana_cost": 60,
+      "traits": [
+        "Origin3",
+        "Class5"
+      ]
+    },
+    {
+      "id": 23,
+      "name": "Unit_24",
+      "cost": 3,
+      "hp": 780,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 72,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 195,
+      "ability_type": "cc",
+      "mana_cost": 60,
+      "traits": [
+        "Origin4",
+        "Class6"
+      ]
+    },
+    {
+      "id": 24,
+      "name": "Unit_25",
+      "cost": 4,
+      "hp": 900,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 82,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 225,
+      "ability_type": "damage",
+      "mana_cost": 60,
+      "traits": [
+        "Origin1",
+        "Class1"
+      ]
+    },
+    {
+      "id": 25,
+      "name": "Unit_26",
+      "cost": 4,
+      "hp": 900,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 82,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 225,
+      "ability_type": "heal",
+      "mana_cost": 60,
+      "traits": [
+        "Origin2",
+        "Class2"
+      ]
+    },
+    {
+      "id": 26,
+      "name": "Unit_27",
+      "cost": 4,
+      "hp": 900,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 82,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 225,
+      "ability_type": "shield",
+      "mana_cost": 60,
+      "traits": [
+        "Origin3",
+        "Class3"
+      ]
+    },
+    {
+      "id": 27,
+      "name": "Unit_28",
+      "cost": 4,
+      "hp": 900,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 82,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 225,
+      "ability_type": "cc",
+      "mana_cost": 60,
+      "traits": [
+        "Origin4",
+        "Class4"
+      ]
+    },
+    {
+      "id": 28,
+      "name": "Unit_29",
+      "cost": 5,
+      "hp": 1050,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 96,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 262,
+      "ability_type": "damage",
+      "mana_cost": 60,
+      "traits": [
+        "Origin1",
+        "Class5"
+      ]
+    },
+    {
+      "id": 29,
+      "name": "Unit_30",
+      "cost": 5,
+      "hp": 1050,
+      "armor": 40,
+      "magic_resist": 40,
+      "attack_damage": 96,
+      "attack_speed": 0.7,
+      "range": 1,
+      "ability_damage": 262,
+      "ability_type": "heal",
+      "mana_cost": 60,
+      "traits": [
+        "Origin2",
+        "Class6"
+      ]
     }
   ],
   "traits": [
     {
-      "name": "TraitA",
-      "breakpoints": [2, 4, 6],
+      "name": "Origin1",
+      "breakpoints": [
+        3,
+        5,
+        7,
+        10
+      ],
       "effects": {
-        "2": {"hp_multiplier": 1.15},
-        "4": {"hp_multiplier": 1.35},
-        "6": {"hp_multiplier": 1.60}
+        "3": {
+          "hp_multiplier": 1.15
+        },
+        "5": {
+          "hp_multiplier": 1.25
+        },
+        "7": {
+          "hp_multiplier": 1.4
+        },
+        "10": {
+          "hp_multiplier": 1.6
+        }
+      }
+    },
+    {
+      "name": "Origin2",
+      "breakpoints": [
+        3,
+        5,
+        7,
+        10
+      ],
+      "effects": {
+        "3": {
+          "hp_multiplier": 1.15
+        },
+        "5": {
+          "hp_multiplier": 1.25
+        },
+        "7": {
+          "hp_multiplier": 1.4
+        },
+        "10": {
+          "hp_multiplier": 1.6
+        }
+      }
+    },
+    {
+      "name": "Origin3",
+      "breakpoints": [
+        3,
+        5,
+        7,
+        10
+      ],
+      "effects": {
+        "3": {
+          "hp_multiplier": 1.15
+        },
+        "5": {
+          "hp_multiplier": 1.25
+        },
+        "7": {
+          "hp_multiplier": 1.4
+        },
+        "10": {
+          "hp_multiplier": 1.6
+        }
+      }
+    },
+    {
+      "name": "Origin4",
+      "breakpoints": [
+        3,
+        5,
+        7,
+        10
+      ],
+      "effects": {
+        "3": {
+          "hp_multiplier": 1.15
+        },
+        "5": {
+          "hp_multiplier": 1.25
+        },
+        "7": {
+          "hp_multiplier": 1.4
+        },
+        "10": {
+          "hp_multiplier": 1.6
+        }
+      }
+    },
+    {
+      "name": "Class1",
+      "breakpoints": [
+        2,
+        4,
+        6
+      ],
+      "effects": {
+        "2": {
+          "hp_multiplier": 1.15
+        },
+        "4": {
+          "hp_multiplier": 1.35
+        },
+        "6": {
+          "hp_multiplier": 1.6
+        }
+      }
+    },
+    {
+      "name": "Class2",
+      "breakpoints": [
+        2,
+        4,
+        6
+      ],
+      "effects": {
+        "2": {
+          "hp_multiplier": 1.15
+        },
+        "4": {
+          "hp_multiplier": 1.35
+        },
+        "6": {
+          "hp_multiplier": 1.6
+        }
+      }
+    },
+    {
+      "name": "Class3",
+      "breakpoints": [
+        2,
+        4,
+        6
+      ],
+      "effects": {
+        "2": {
+          "hp_multiplier": 1.15
+        },
+        "4": {
+          "hp_multiplier": 1.35
+        },
+        "6": {
+          "hp_multiplier": 1.6
+        }
+      }
+    },
+    {
+      "name": "Class4",
+      "breakpoints": [
+        2,
+        4,
+        6
+      ],
+      "effects": {
+        "2": {
+          "hp_multiplier": 1.15
+        },
+        "4": {
+          "hp_multiplier": 1.35
+        },
+        "6": {
+          "hp_multiplier": 1.6
+        }
+      }
+    },
+    {
+      "name": "Class5",
+      "breakpoints": [
+        2,
+        4,
+        6
+      ],
+      "effects": {
+        "2": {
+          "hp_multiplier": 1.15
+        },
+        "4": {
+          "hp_multiplier": 1.35
+        },
+        "6": {
+          "hp_multiplier": 1.6
+        }
+      }
+    },
+    {
+      "name": "Class6",
+      "breakpoints": [
+        2,
+        4,
+        6
+      ],
+      "effects": {
+        "2": {
+          "hp_multiplier": 1.15
+        },
+        "4": {
+          "hp_multiplier": 1.35
+        },
+        "6": {
+          "hp_multiplier": 1.6
+        }
       }
     }
   ]
