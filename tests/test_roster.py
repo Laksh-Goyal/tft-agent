@@ -6,8 +6,10 @@ from tft_sim.game.units import UnitDatabase
 
 ROSTER_PATH = "tft_sim/data/unit_roster.json"
 EXPECTED_COST_COUNTS = {1: 10, 2: 8, 3: 6, 4: 4, 5: 2}
-EXPECTED_ORIGINS = {f"Origin{i}" for i in range(1, 5)}
-EXPECTED_CLASSES = {f"Class{i}" for i in range(1, 7)}
+EXPECTED_TRAITS = {
+    "Warlord", "Arcane", "Void", "Wildborn",
+    "Bruiser", "Mage", "Assassin", "Sentinel", "Invoker", "Slayer",
+}
 
 
 @pytest.fixture
@@ -30,24 +32,20 @@ def test_cost_tier_counts(db):
     assert counts == EXPECTED_COST_COUNTS
 
 
-def test_trait_names_are_placeholders(db):
-    names = set(db.trait_data.keys())
-    assert names == EXPECTED_ORIGINS | EXPECTED_CLASSES
+def test_trait_names(db):
+    assert set(db.trait_data.keys()) == EXPECTED_TRAITS
 
 
 def test_every_unit_trait_references_defined_trait(db):
     for unit in db.unit_data.values():
-        assert len(unit["traits"]) == 2
+        assert 2 <= len(unit["traits"]) <= 3
         for trait in unit["traits"]:
             assert trait in db.trait_data
 
 
-def test_unit_trait_assignment_formula(db):
-    for uid, unit in db.unit_data.items():
-        assert unit["traits"] == [
-            f"Origin{(uid % 4) + 1}",
-            f"Class{(uid % 6) + 1}",
-        ]
+def test_ability_damage_is_positive_coefficient(db):
+    for unit in db.unit_data.values():
+        assert unit["ability_damage"] > 0
 
 
 def test_create_unit_roundtrip(db):

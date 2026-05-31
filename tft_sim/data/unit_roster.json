@@ -2,640 +2,639 @@
   "units": [
     {
       "id": 0,
-      "name": "Unit_01",
+      "name": "Garen",
       "cost": 1,
-      "hp": 600,
-      "armor": 40,
-      "magic_resist": 40,
+      "hp": 650,
+      "armor": 50,
+      "magic_resist": 30,
       "attack_damage": 55,
-      "attack_speed": 0.7,
+      "attack_speed": 0.65,
       "range": 1,
-      "ability_damage": 150,
+      "ability_damage": 2.364,
       "ability_type": "damage",
-      "mana_cost": 60,
+      "mana_cost": 50,
       "traits": [
-        "Origin1",
-        "Class1"
+        "Warlord",
+        "Bruiser"
       ]
     },
     {
       "id": 1,
-      "name": "Unit_02",
+      "name": "Lux",
       "cost": 1,
-      "hp": 600,
-      "armor": 40,
-      "magic_resist": 40,
-      "attack_damage": 55,
+      "hp": 500,
+      "armor": 25,
+      "magic_resist": 35,
+      "attack_damage": 45,
       "attack_speed": 0.7,
-      "range": 1,
-      "ability_damage": 150,
-      "ability_type": "heal",
+      "range": 4,
+      "ability_damage": 3.889,
+      "ability_type": "damage",
       "mana_cost": 60,
       "traits": [
-        "Origin2",
-        "Class2"
+        "Arcane",
+        "Mage"
       ]
     },
     {
       "id": 2,
-      "name": "Unit_03",
+      "name": "Zed",
       "cost": 1,
-      "hp": 600,
-      "armor": 40,
-      "magic_resist": 40,
-      "attack_damage": 55,
-      "attack_speed": 0.7,
+      "hp": 520,
+      "armor": 30,
+      "magic_resist": 25,
+      "attack_damage": 65,
+      "attack_speed": 0.85,
       "range": 1,
-      "ability_damage": 150,
-      "ability_type": "shield",
-      "mana_cost": 60,
+      "ability_damage": 2.308,
+      "ability_type": "damage",
+      "mana_cost": 55,
       "traits": [
-        "Origin3",
-        "Class3"
+        "Void",
+        "Assassin"
       ]
     },
     {
       "id": 3,
-      "name": "Unit_04",
+      "name": "Poppy",
       "cost": 1,
-      "hp": 600,
-      "armor": 40,
+      "hp": 700,
+      "armor": 55,
       "magic_resist": 40,
-      "attack_damage": 55,
-      "attack_speed": 0.7,
+      "attack_damage": 50,
+      "attack_speed": 0.6,
       "range": 1,
-      "ability_damage": 150,
-      "ability_type": "cc",
+      "ability_damage": 0.25,
+      "ability_type": "shield",
       "mana_cost": 60,
       "traits": [
-        "Origin4",
-        "Class4"
+        "Wildborn",
+        "Sentinel"
       ]
     },
     {
       "id": 4,
-      "name": "Unit_05",
+      "name": "Ryze",
       "cost": 1,
-      "hp": 600,
-      "armor": 40,
+      "hp": 490,
+      "armor": 20,
       "magic_resist": 40,
-      "attack_damage": 55,
-      "attack_speed": 0.7,
-      "range": 1,
-      "ability_damage": 150,
+      "attack_damage": 40,
+      "attack_speed": 0.65,
+      "range": 3,
+      "ability_damage": 4.0,
       "ability_type": "damage",
-      "mana_cost": 60,
+      "mana_cost": 50,
       "traits": [
-        "Origin1",
-        "Class5"
+        "Arcane",
+        "Invoker"
       ]
     },
     {
       "id": 5,
-      "name": "Unit_06",
+      "name": "Darius",
       "cost": 1,
-      "hp": 600,
-      "armor": 40,
-      "magic_resist": 40,
-      "attack_damage": 55,
+      "hp": 680,
+      "armor": 45,
+      "magic_resist": 30,
+      "attack_damage": 60,
       "attack_speed": 0.7,
       "range": 1,
-      "ability_damage": 150,
-      "ability_type": "heal",
-      "mana_cost": 60,
+      "ability_damage": 2.667,
+      "ability_type": "damage",
+      "mana_cost": 65,
       "traits": [
-        "Origin2",
-        "Class6"
+        "Warlord",
+        "Slayer"
       ]
     },
     {
       "id": 6,
-      "name": "Unit_07",
+      "name": "Warwick",
       "cost": 1,
-      "hp": 600,
+      "hp": 630,
       "armor": 40,
-      "magic_resist": 40,
-      "attack_damage": 55,
-      "attack_speed": 0.7,
+      "magic_resist": 30,
+      "attack_damage": 58,
+      "attack_speed": 0.75,
       "range": 1,
-      "ability_damage": 150,
-      "ability_type": "shield",
-      "mana_cost": 60,
+      "ability_damage": 0.19,
+      "ability_type": "heal",
+      "mana_cost": 55,
       "traits": [
-        "Origin3",
-        "Class1"
+        "Wildborn",
+        "Bruiser"
       ]
     },
     {
       "id": 7,
-      "name": "Unit_08",
+      "name": "Kha'Zix",
       "cost": 1,
-      "hp": 600,
-      "armor": 40,
-      "magic_resist": 40,
-      "attack_damage": 55,
-      "attack_speed": 0.7,
+      "hp": 510,
+      "armor": 25,
+      "magic_resist": 25,
+      "attack_damage": 68,
+      "attack_speed": 0.8,
       "range": 1,
-      "ability_damage": 150,
-      "ability_type": "cc",
-      "mana_cost": 60,
+      "ability_damage": 2.132,
+      "ability_type": "damage",
+      "mana_cost": 50,
       "traits": [
-        "Origin4",
-        "Class2"
+        "Void",
+        "Slayer"
       ]
     },
     {
       "id": 8,
-      "name": "Unit_09",
+      "name": "Sivir",
       "cost": 1,
-      "hp": 600,
-      "armor": 40,
-      "magic_resist": 40,
-      "attack_damage": 55,
-      "attack_speed": 0.7,
-      "range": 1,
-      "ability_damage": 150,
+      "hp": 480,
+      "armor": 20,
+      "magic_resist": 25,
+      "attack_damage": 62,
+      "attack_speed": 0.9,
+      "range": 3,
+      "ability_damage": 1.774,
       "ability_type": "damage",
       "mana_cost": 60,
       "traits": [
-        "Origin1",
-        "Class3"
+        "Warlord",
+        "Assassin"
       ]
     },
     {
       "id": 9,
-      "name": "Unit_10",
+      "name": "Soraka",
       "cost": 1,
-      "hp": 600,
-      "armor": 40,
-      "magic_resist": 40,
-      "attack_damage": 55,
-      "attack_speed": 0.7,
-      "range": 1,
-      "ability_damage": 150,
+      "hp": 470,
+      "armor": 20,
+      "magic_resist": 35,
+      "attack_damage": 38,
+      "attack_speed": 0.65,
+      "range": 4,
+      "ability_damage": 0.298,
       "ability_type": "heal",
-      "mana_cost": 60,
+      "mana_cost": 50,
       "traits": [
-        "Origin2",
-        "Class4"
+        "Wildborn",
+        "Mage"
       ]
     },
     {
       "id": 10,
-      "name": "Unit_11",
+      "name": "Malphite",
       "cost": 2,
-      "hp": 690,
-      "armor": 40,
-      "magic_resist": 40,
-      "attack_damage": 63,
-      "attack_speed": 0.7,
+      "hp": 850,
+      "armor": 65,
+      "magic_resist": 45,
+      "attack_damage": 65,
+      "attack_speed": 0.6,
       "range": 1,
-      "ability_damage": 172,
-      "ability_type": "shield",
-      "mana_cost": 60,
+      "ability_damage": 3.077,
+      "ability_type": "cc",
+      "mana_cost": 70,
       "traits": [
-        "Origin3",
-        "Class5"
+        "Wildborn",
+        "Bruiser",
+        "Sentinel"
       ]
     },
     {
       "id": 11,
-      "name": "Unit_12",
+      "name": "Syndra",
       "cost": 2,
-      "hp": 690,
-      "armor": 40,
+      "hp": 620,
+      "armor": 25,
       "magic_resist": 40,
-      "attack_damage": 63,
+      "attack_damage": 55,
       "attack_speed": 0.7,
-      "range": 1,
-      "ability_damage": 172,
-      "ability_type": "cc",
-      "mana_cost": 60,
+      "range": 4,
+      "ability_damage": 4.0,
+      "ability_type": "damage",
+      "mana_cost": 70,
       "traits": [
-        "Origin4",
-        "Class6"
+        "Arcane",
+        "Mage"
       ]
     },
     {
       "id": 12,
-      "name": "Unit_13",
+      "name": "Talon",
       "cost": 2,
-      "hp": 690,
-      "armor": 40,
-      "magic_resist": 40,
-      "attack_damage": 63,
-      "attack_speed": 0.7,
+      "hp": 640,
+      "armor": 35,
+      "magic_resist": 30,
+      "attack_damage": 80,
+      "attack_speed": 0.85,
       "range": 1,
-      "ability_damage": 172,
+      "ability_damage": 2.75,
       "ability_type": "damage",
-      "mana_cost": 60,
+      "mana_cost": 65,
       "traits": [
-        "Origin1",
-        "Class1"
+        "Void",
+        "Assassin"
       ]
     },
     {
       "id": 13,
-      "name": "Unit_14",
+      "name": "Leona",
       "cost": 2,
-      "hp": 690,
-      "armor": 40,
-      "magic_resist": 40,
-      "attack_damage": 63,
-      "attack_speed": 0.7,
+      "hp": 900,
+      "armor": 70,
+      "magic_resist": 50,
+      "attack_damage": 60,
+      "attack_speed": 0.6,
       "range": 1,
-      "ability_damage": 172,
-      "ability_type": "heal",
-      "mana_cost": 60,
+      "ability_damage": 0.25,
+      "ability_type": "shield",
+      "mana_cost": 70,
       "traits": [
-        "Origin2",
-        "Class2"
+        "Warlord",
+        "Sentinel"
       ]
     },
     {
       "id": 14,
-      "name": "Unit_15",
+      "name": "Karma",
       "cost": 2,
-      "hp": 690,
-      "armor": 40,
-      "magic_resist": 40,
-      "attack_damage": 63,
-      "attack_speed": 0.7,
-      "range": 1,
-      "ability_damage": 172,
+      "hp": 600,
+      "armor": 25,
+      "magic_resist": 45,
+      "attack_damage": 50,
+      "attack_speed": 0.65,
+      "range": 4,
+      "ability_damage": 0.3,
       "ability_type": "shield",
       "mana_cost": 60,
       "traits": [
-        "Origin3",
-        "Class3"
+        "Arcane",
+        "Invoker"
       ]
     },
     {
       "id": 15,
-      "name": "Unit_16",
+      "name": "Draven",
       "cost": 2,
-      "hp": 690,
-      "armor": 40,
-      "magic_resist": 40,
-      "attack_damage": 63,
-      "attack_speed": 0.7,
-      "range": 1,
-      "ability_damage": 172,
-      "ability_type": "cc",
-      "mana_cost": 60,
+      "hp": 660,
+      "armor": 30,
+      "magic_resist": 25,
+      "attack_damage": 90,
+      "attack_speed": 0.8,
+      "range": 3,
+      "ability_damage": 2.333,
+      "ability_type": "damage",
+      "mana_cost": 70,
       "traits": [
-        "Origin4",
-        "Class4"
+        "Warlord",
+        "Slayer"
       ]
     },
     {
       "id": 16,
-      "name": "Unit_17",
+      "name": "Cho'Gath",
       "cost": 2,
-      "hp": 690,
-      "armor": 40,
-      "magic_resist": 40,
-      "attack_damage": 63,
-      "attack_speed": 0.7,
+      "hp": 920,
+      "armor": 60,
+      "magic_resist": 50,
+      "attack_damage": 70,
+      "attack_speed": 0.55,
       "range": 1,
-      "ability_damage": 172,
-      "ability_type": "damage",
-      "mana_cost": 60,
+      "ability_damage": 3.286,
+      "ability_type": "cc",
+      "mana_cost": 80,
       "traits": [
-        "Origin1",
-        "Class5"
+        "Void",
+        "Bruiser"
       ]
     },
     {
       "id": 17,
-      "name": "Unit_18",
+      "name": "Nidalee",
       "cost": 2,
-      "hp": 690,
-      "armor": 40,
-      "magic_resist": 40,
-      "attack_damage": 63,
-      "attack_speed": 0.7,
-      "range": 1,
-      "ability_damage": 172,
-      "ability_type": "heal",
-      "mana_cost": 60,
+      "hp": 610,
+      "armor": 30,
+      "magic_resist": 35,
+      "attack_damage": 72,
+      "attack_speed": 0.85,
+      "range": 3,
+      "ability_damage": 2.708,
+      "ability_type": "damage",
+      "mana_cost": 65,
       "traits": [
-        "Origin2",
-        "Class6"
+        "Wildborn",
+        "Assassin"
       ]
     },
     {
       "id": 18,
-      "name": "Unit_19",
+      "name": "Jarvan IV",
       "cost": 3,
-      "hp": 780,
-      "armor": 40,
-      "magic_resist": 40,
-      "attack_damage": 72,
-      "attack_speed": 0.7,
+      "hp": 1050,
+      "armor": 70,
+      "magic_resist": 50,
+      "attack_damage": 85,
+      "attack_speed": 0.65,
       "range": 1,
-      "ability_damage": 195,
-      "ability_type": "shield",
-      "mana_cost": 60,
+      "ability_damage": 3.529,
+      "ability_type": "cc",
+      "mana_cost": 80,
       "traits": [
-        "Origin3",
-        "Class1"
+        "Warlord",
+        "Bruiser",
+        "Sentinel"
       ]
     },
     {
       "id": 19,
-      "name": "Unit_20",
+      "name": "Lissandra",
       "cost": 3,
       "hp": 780,
-      "armor": 40,
-      "magic_resist": 40,
-      "attack_damage": 72,
+      "armor": 35,
+      "magic_resist": 55,
+      "attack_damage": 65,
       "attack_speed": 0.7,
-      "range": 1,
-      "ability_damage": 195,
+      "range": 3,
+      "ability_damage": 4.0,
       "ability_type": "cc",
-      "mana_cost": 60,
+      "mana_cost": 85,
       "traits": [
-        "Origin4",
-        "Class2"
+        "Arcane",
+        "Mage",
+        "Invoker"
       ]
     },
     {
       "id": 20,
-      "name": "Unit_21",
+      "name": "Ekko",
       "cost": 3,
-      "hp": 780,
-      "armor": 40,
-      "magic_resist": 40,
-      "attack_damage": 72,
-      "attack_speed": 0.7,
+      "hp": 820,
+      "armor": 45,
+      "magic_resist": 45,
+      "attack_damage": 95,
+      "attack_speed": 0.9,
       "range": 1,
-      "ability_damage": 195,
+      "ability_damage": 3.368,
       "ability_type": "damage",
-      "mana_cost": 60,
+      "mana_cost": 75,
       "traits": [
-        "Origin1",
-        "Class3"
+        "Void",
+        "Assassin",
+        "Slayer"
       ]
     },
     {
       "id": 21,
-      "name": "Unit_22",
+      "name": "Zyra",
       "cost": 3,
-      "hp": 780,
-      "armor": 40,
-      "magic_resist": 40,
-      "attack_damage": 72,
-      "attack_speed": 0.7,
-      "range": 1,
-      "ability_damage": 195,
-      "ability_type": "heal",
-      "mana_cost": 60,
+      "hp": 730,
+      "armor": 30,
+      "magic_resist": 50,
+      "attack_damage": 60,
+      "attack_speed": 0.65,
+      "range": 4,
+      "ability_damage": 4.0,
+      "ability_type": "damage",
+      "mana_cost": 90,
       "traits": [
-        "Origin2",
-        "Class4"
+        "Wildborn",
+        "Mage",
+        "Invoker"
       ]
     },
     {
       "id": 22,
-      "name": "Unit_23",
+      "name": "Vi",
       "cost": 3,
-      "hp": 780,
-      "armor": 40,
-      "magic_resist": 40,
-      "attack_damage": 72,
+      "hp": 1100,
+      "armor": 75,
+      "magic_resist": 55,
+      "attack_damage": 90,
       "attack_speed": 0.7,
       "range": 1,
-      "ability_damage": 195,
-      "ability_type": "shield",
-      "mana_cost": 60,
+      "ability_damage": 3.111,
+      "ability_type": "damage",
+      "mana_cost": 80,
       "traits": [
-        "Origin3",
-        "Class5"
+        "Warlord",
+        "Bruiser",
+        "Slayer"
       ]
     },
     {
       "id": 23,
-      "name": "Unit_24",
+      "name": "Kassadin",
       "cost": 3,
-      "hp": 780,
+      "hp": 800,
       "armor": 40,
-      "magic_resist": 40,
-      "attack_damage": 72,
-      "attack_speed": 0.7,
+      "magic_resist": 60,
+      "attack_damage": 80,
+      "attack_speed": 0.75,
       "range": 1,
-      "ability_damage": 195,
-      "ability_type": "cc",
-      "mana_cost": 60,
+      "ability_damage": 4.0,
+      "ability_type": "damage",
+      "mana_cost": 80,
       "traits": [
-        "Origin4",
-        "Class6"
+        "Void",
+        "Invoker",
+        "Assassin"
       ]
     },
     {
       "id": 24,
-      "name": "Unit_25",
+      "name": "Sejuani",
       "cost": 4,
-      "hp": 900,
-      "armor": 40,
-      "magic_resist": 40,
-      "attack_damage": 82,
-      "attack_speed": 0.7,
+      "hp": 1350,
+      "armor": 85,
+      "magic_resist": 65,
+      "attack_damage": 95,
+      "attack_speed": 0.65,
       "range": 1,
-      "ability_damage": 225,
-      "ability_type": "damage",
-      "mana_cost": 60,
+      "ability_damage": 4.0,
+      "ability_type": "cc",
+      "mana_cost": 90,
       "traits": [
-        "Origin1",
-        "Class1"
+        "Wildborn",
+        "Bruiser",
+        "Sentinel"
       ]
     },
     {
       "id": 25,
-      "name": "Unit_26",
+      "name": "Viktor",
       "cost": 4,
-      "hp": 900,
+      "hp": 950,
       "armor": 40,
-      "magic_resist": 40,
-      "attack_damage": 82,
-      "attack_speed": 0.7,
-      "range": 1,
-      "ability_damage": 225,
-      "ability_type": "heal",
-      "mana_cost": 60,
+      "magic_resist": 65,
+      "attack_damage": 80,
+      "attack_speed": 0.75,
+      "range": 4,
+      "ability_damage": 4.0,
+      "ability_type": "damage",
+      "mana_cost": 100,
       "traits": [
-        "Origin2",
-        "Class2"
+        "Arcane",
+        "Mage",
+        "Invoker"
       ]
     },
     {
       "id": 26,
-      "name": "Unit_27",
+      "name": "Aatrox",
       "cost": 4,
-      "hp": 900,
-      "armor": 40,
-      "magic_resist": 40,
-      "attack_damage": 82,
-      "attack_speed": 0.7,
+      "hp": 1250,
+      "armor": 65,
+      "magic_resist": 55,
+      "attack_damage": 115,
+      "attack_speed": 0.75,
       "range": 1,
-      "ability_damage": 225,
-      "ability_type": "shield",
-      "mana_cost": 60,
+      "ability_damage": 0.384,
+      "ability_type": "heal",
+      "mana_cost": 90,
       "traits": [
-        "Origin3",
-        "Class3"
+        "Void",
+        "Bruiser",
+        "Slayer"
       ]
     },
     {
       "id": 27,
-      "name": "Unit_28",
+      "name": "Camille",
       "cost": 4,
-      "hp": 900,
-      "armor": 40,
-      "magic_resist": 40,
-      "attack_damage": 82,
-      "attack_speed": 0.7,
+      "hp": 1050,
+      "armor": 60,
+      "magic_resist": 55,
+      "attack_damage": 120,
+      "attack_speed": 0.85,
       "range": 1,
-      "ability_damage": 225,
-      "ability_type": "cc",
-      "mana_cost": 60,
+      "ability_damage": 3.667,
+      "ability_type": "damage",
+      "mana_cost": 85,
       "traits": [
-        "Origin4",
-        "Class4"
+        "Warlord",
+        "Assassin",
+        "Slayer"
       ]
     },
     {
       "id": 28,
-      "name": "Unit_29",
+      "name": "Aurelion Sol",
       "cost": 5,
-      "hp": 1050,
-      "armor": 40,
-      "magic_resist": 40,
-      "attack_damage": 96,
-      "attack_speed": 0.7,
-      "range": 1,
-      "ability_damage": 262,
+      "hp": 1100,
+      "armor": 45,
+      "magic_resist": 75,
+      "attack_damage": 90,
+      "attack_speed": 0.75,
+      "range": 4,
+      "ability_damage": 4.0,
       "ability_type": "damage",
-      "mana_cost": 60,
+      "mana_cost": 110,
       "traits": [
-        "Origin1",
-        "Class5"
+        "Arcane",
+        "Mage",
+        "Invoker"
       ]
     },
     {
       "id": 29,
-      "name": "Unit_30",
+      "name": "Nasus",
       "cost": 5,
-      "hp": 1050,
-      "armor": 40,
-      "magic_resist": 40,
-      "attack_damage": 96,
+      "hp": 1800,
+      "armor": 100,
+      "magic_resist": 80,
+      "attack_damage": 130,
       "attack_speed": 0.7,
       "range": 1,
-      "ability_damage": 262,
-      "ability_type": "heal",
-      "mana_cost": 60,
+      "ability_damage": 4.0,
+      "ability_type": "damage",
+      "mana_cost": 100,
       "traits": [
-        "Origin2",
-        "Class6"
+        "Wildborn",
+        "Bruiser",
+        "Slayer"
       ]
     }
   ],
   "traits": [
     {
-      "name": "Origin1",
+      "name": "Warlord",
+      "display_name": "Warlord",
+      "description": "Warlords gain bonus Attack Damage.",
       "breakpoints": [
         3,
         5,
-        7,
-        10
+        7
       ],
       "effects": {
         "3": {
-          "hp_multiplier": 1.15
+          "ad_multiplier": 1.15
         },
         "5": {
-          "hp_multiplier": 1.25
+          "ad_multiplier": 1.3
         },
         "7": {
-          "hp_multiplier": 1.4
-        },
-        "10": {
-          "hp_multiplier": 1.6
+          "ad_multiplier": 1.5
         }
       }
     },
     {
-      "name": "Origin2",
+      "name": "Arcane",
+      "display_name": "Arcane",
+      "description": "Arcane units gain bonus Ability Damage.",
       "breakpoints": [
         3,
         5,
-        7,
-        10
+        7
       ],
       "effects": {
         "3": {
-          "hp_multiplier": 1.15
+          "ability_damage_multiplier": 1.2
         },
         "5": {
-          "hp_multiplier": 1.25
+          "ability_damage_multiplier": 1.4
         },
         "7": {
-          "hp_multiplier": 1.4
-        },
-        "10": {
-          "hp_multiplier": 1.6
+          "ability_damage_multiplier": 1.65
         }
       }
     },
     {
-      "name": "Origin3",
+      "name": "Void",
+      "display_name": "Void",
+      "description": "Void units reduce enemy effective armor and magic resist.",
       "breakpoints": [
         3,
-        5,
-        7,
-        10
+        5
       ],
       "effects": {
         "3": {
-          "hp_multiplier": 1.15
+          "enemy_armor_reduction": 0.2
         },
         "5": {
-          "hp_multiplier": 1.25
-        },
-        "7": {
-          "hp_multiplier": 1.4
-        },
-        "10": {
-          "hp_multiplier": 1.6
+          "enemy_armor_reduction": 0.4
         }
       }
     },
     {
-      "name": "Origin4",
+      "name": "Wildborn",
+      "display_name": "Wildborn",
+      "description": "Wildborn units regenerate HP each second during combat.",
       "breakpoints": [
         3,
-        5,
-        7,
-        10
+        5
       ],
       "effects": {
         "3": {
-          "hp_multiplier": 1.15
+          "hp_regen_per_sec": 35
         },
         "5": {
-          "hp_multiplier": 1.25
-        },
-        "7": {
-          "hp_multiplier": 1.4
-        },
-        "10": {
-          "hp_multiplier": 1.6
+          "hp_regen_per_sec": 80
         }
       }
     },
     {
-      "name": "Class1",
+      "name": "Bruiser",
+      "display_name": "Bruiser",
+      "description": "Bruisers gain bonus max HP.",
       "breakpoints": [
         2,
         4,
@@ -654,7 +653,9 @@
       }
     },
     {
-      "name": "Class2",
+      "name": "Mage",
+      "display_name": "Mage",
+      "description": "Mages gain bonus Ability Damage.",
       "breakpoints": [
         2,
         4,
@@ -662,18 +663,20 @@
       ],
       "effects": {
         "2": {
-          "hp_multiplier": 1.15
+          "ability_damage_multiplier": 1.1
         },
         "4": {
-          "hp_multiplier": 1.35
+          "ability_damage_multiplier": 1.25
         },
         "6": {
-          "hp_multiplier": 1.6
+          "ability_damage_multiplier": 1.45
         }
       }
     },
     {
-      "name": "Class3",
+      "name": "Assassin",
+      "display_name": "Assassin",
+      "description": "Assassins gain bonus Attack Damage and critical strike chance.",
       "breakpoints": [
         2,
         4,
@@ -681,56 +684,57 @@
       ],
       "effects": {
         "2": {
-          "hp_multiplier": 1.15
+          "ad_multiplier": 1.15,
+          "crit_bonus": 0.1
         },
         "4": {
-          "hp_multiplier": 1.35
+          "ad_multiplier": 1.3,
+          "crit_bonus": 0.25
         },
         "6": {
-          "hp_multiplier": 1.6
+          "ad_multiplier": 1.5,
+          "crit_bonus": 0.45
         }
       }
     },
     {
-      "name": "Class4",
+      "name": "Sentinel",
+      "display_name": "Sentinel",
+      "description": "Sentinels grant a shield to the lowest HP ally at round start.",
       "breakpoints": [
         2,
-        4,
-        6
+        4
       ],
       "effects": {
         "2": {
-          "hp_multiplier": 1.15
+          "ally_shield": 200
         },
         "4": {
-          "hp_multiplier": 1.35
-        },
-        "6": {
-          "hp_multiplier": 1.6
+          "ally_shield": 450
         }
       }
     },
     {
-      "name": "Class5",
+      "name": "Invoker",
+      "display_name": "Invoker",
+      "description": "Invokers gain bonus mana per second, casting more frequently.",
       "breakpoints": [
         2,
-        4,
-        6
+        4
       ],
       "effects": {
         "2": {
-          "hp_multiplier": 1.15
+          "mana_per_sec": 10
         },
         "4": {
-          "hp_multiplier": 1.35
-        },
-        "6": {
-          "hp_multiplier": 1.6
+          "mana_per_sec": 22
         }
       }
     },
     {
-      "name": "Class6",
+      "name": "Slayer",
+      "display_name": "Slayer",
+      "description": "Slayers deal bonus damage to enemies below a HP threshold.",
       "breakpoints": [
         2,
         4,
@@ -738,13 +742,16 @@
       ],
       "effects": {
         "2": {
-          "hp_multiplier": 1.15
+          "execute_threshold": 0.1,
+          "execute_bonus_damage": 1.2
         },
         "4": {
-          "hp_multiplier": 1.35
+          "execute_threshold": 0.18,
+          "execute_bonus_damage": 1.4
         },
         "6": {
-          "hp_multiplier": 1.6
+          "execute_threshold": 0.28,
+          "execute_bonus_damage": 1.65
         }
       }
     }

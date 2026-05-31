@@ -58,10 +58,7 @@ def compute_action_mask(player, unit_db: UnitDatabase) -> np.ndarray:
         if unit is not None:
             mask[ACTION_SELL_BOARD_START + i] = 1
 
-    # toggle_frontline(i) -> board slot i is occupied
-    for i, unit in enumerate(player.board):
-        if unit is not None:
-            mask[ACTION_TOGGLE_FRONTLINE_START + i] = 1
+    # toggle_frontline deprecated: positioning derived from unit.range (always illegal)
 
     # place_unit(b, d)
     board_unit_count = sum(1 for u in player.board if u is not None)

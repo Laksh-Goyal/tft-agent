@@ -6,66 +6,66 @@ A reinforcement-learning project for learning to play a stripped-down Teamfight 
 
 ```
 tft_sim/
-  game/          # Pure game engine (no RL dependencies)
-    player.py    # Gold, health, board, bench, shop
-    shop.py      # Shared pool and shop rolls
-    combat.py    # DPS-based combat resolution
-    units.py     # Roster load, star scaling, auto-combine
-    traits.py    # Trait breakpoint bonuses
-  env/           # Gymnasium wrapper
-    tft_env.py   # TFTEnv (reset, step, action_masks)
-    state.py     # GameState, observations, round loop
-    action_space.py
+  game/
+    player.py, shop.py, combat.py, units.py, traits.py, trait_effects.py
+  env/
+    tft_env.py, state.py, action_space.py
   data/
     unit_roster.json
-tests/           # Pytest unit and smoke tests
+tests/
 docs/
   tft_rl_spec.md
 ```
 
 ## Setup
 
-Create and activate a virtual environment at the repo root:
-
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
-```
-
-## Running tests
-
-From the repo root (with the venv active):
-
-```bash
 pytest -q
 ```
 
-Tests cover combat, action masking, stage round limits, reproducible RNG seeding, uniform PvP damage, roster loading, and a minimal Gymnasium smoke check.
+## Combat and roster semantics
 
-## Quick smoke check
+### Positioning (range-based)
 
-```bash
-python -c "
-from tft_sim.env.tft_env import TFTEnv
-env = TFTEnv(n_players=2)
-obs, info = env.reset(seed=42)
-obs, r, term, trunc, info = env.step(0)
-print('obs shape:', obs.shape, 'reward:', r)
-"
-```
+- `range` 1–2: **frontline** (targeted first in combat)
+- `range` 3+: **backline** (protected until frontline is eliminated)
+- `toggle_frontline` actions (IDs 27–36) are deprecated and always masked illegal
+
+### Abilities (`ability_damage` field)
+
+The JSON field `ability_damage` is an **ability coefficient**, not flat damage:
+
+| `ability_type` | Resolved power |
+|----------------|----------------|
+| `damage`, `cc` | `attack_damage × coeff` |
+| `heal`, `shield` | `hp × coeff` |
+
+Star levels scale `hp` and `attack_damage` only; coefficients stay fixed so ability power grows with stars automatically.
+
+### Trait effects in combat
+
+| Effect key | Status |
+|------------|--------|
+| `hp_multiplier`, `ad_multiplier`, `ability_damage_multiplier`, `armor_multiplier`, `mr_multiplier`, `as_multiplier` | Applied to units with matching trait |
+| `enemy_armor_reduction` (Void) | Applied to enemy team before effective HP |
+| `hp_regen_per_sec` (Wildborn) | Bonus effective HP over estimated combat time |
+| `crit_bonus` (Assassin) | Expected-value bonus on auto-attack DPS |
+| `execute_threshold`, `execute_bonus_damage` (Slayer) | DPS multiplier when enemy HP is low after frontline phase |
+| `ally_shield` (Sentinel) | Shield on lowest-HP ally (combat copy only) |
+| `mana_per_sec` (Invoker) | Lowers effective mana cost for ability throughput |
 
 ## Current status
 
 **Implemented**
 
-- Gymnasium environment with masked discrete actions (~127)
-- Shop pool, leveling, auto-combine, DPS combat with traits
-- Correctness fixes: uniform PvP damage, combat ties, stage-5 round cap, seeded RNG, illegal actions raise `ValueError`
-- Placeholder roster: 30 units (10/8/6/4/2 by cost) and 10 traits (`Origin1`–`Origin4`, `Class1`–`Class6`) in [`tft_sim/data/unit_roster.json`](tft_sim/data/unit_roster.json) — names, stats, and effects are for you to replace
+- Gymnasium env with masked actions (~127), shop, combine, traits, range-based combat, ability coefficients
+- Full champion roster in [`tft_sim/data/unit_roster.json`](tft_sim/data/unit_roster.json) (30 units, 10 traits)
 
 **Not yet implemented**
 
-- Scripted opponent bots (opponents do not plan or build boards)
-- Carousel / PvE creep round types (all rounds use PvP-style pairing today)
+- Scripted opponent bots
+- Carousel / PvE round types
 - RL training (`train.py`, MaskablePPO)

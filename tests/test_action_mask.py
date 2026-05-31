@@ -1,4 +1,7 @@
-from tft_sim.env.action_space import ACTION_PASS, ACTION_BUY_XP, compute_action_mask
+from tft_sim.env.action_space import (
+    ACTION_PASS, ACTION_BUY_XP, ACTION_TOGGLE_FRONTLINE_START,
+    ACTION_TOGGLE_FRONTLINE_END, compute_action_mask,
+)
 from tft_sim.game.player import Player
 from tft_sim.game.units import UnitDatabase
 
@@ -42,3 +45,12 @@ def test_place_unit_respects_level_cap():
     mask = compute_action_mask(p, db)
     # bench 0 -> board slot 2: action 39; at level cap cannot place on empty slot
     assert mask[39] == 0
+
+
+def test_toggle_frontline_always_illegal():
+    db = UnitDatabase("tft_sim/data/unit_roster.json")
+    p = Player()
+    p.board[0] = db.create_unit(0)
+    mask = compute_action_mask(p, db)
+    for i in range(ACTION_TOGGLE_FRONTLINE_START, ACTION_TOGGLE_FRONTLINE_END + 1):
+        assert mask[i] == 0

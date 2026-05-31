@@ -11,7 +11,6 @@ from tft_sim.env.action_space import (
     ACTION_BUY_UNIT_START, ACTION_BUY_UNIT_END,
     ACTION_SELL_BENCH_START, ACTION_SELL_BENCH_END,
     ACTION_SELL_BOARD_START, ACTION_SELL_BOARD_END,
-    ACTION_TOGGLE_FRONTLINE_START, ACTION_TOGGLE_FRONTLINE_END,
     ACTION_PLACE_UNIT_START, ACTION_PLACE_UNIT_END
 )
 
@@ -25,6 +24,8 @@ MAX_HP = 3000.0
 MAX_DAMAGE = 500.0
 MAX_ARMOR = 200.0
 MAX_AS = 3.0
+MAX_ABILITY_COEFF = 5.0
+BACKLINE_MIN_RANGE = 3
 
 def xp_required(level: int) -> int:
     reqs = {1: 0, 2: 2, 3: 6, 4: 10, 5: 20, 6: 36, 7: 56, 8: 80, 9: 100}
@@ -253,10 +254,6 @@ class GameState:
             self.pool.return_unit(unit.id, unit.cost)
             p.board[idx] = None
 
-        elif ACTION_TOGGLE_FRONTLINE_START <= action <= ACTION_TOGGLE_FRONTLINE_END:
-            idx = action - ACTION_TOGGLE_FRONTLINE_START
-            p.board[idx].is_frontline = not p.board[idx].is_frontline
-
         elif ACTION_PLACE_UNIT_START <= action <= ACTION_PLACE_UNIT_END:
             idx = action - ACTION_PLACE_UNIT_START
             b_idx = idx // 10
@@ -279,10 +276,10 @@ class GameState:
             unit.attack_damage / MAX_DAMAGE,
             unit.attack_speed / MAX_AS,
             unit.range / 5.0,
-            unit.ability_damage / MAX_DAMAGE,
+            unit.ability_damage / MAX_ABILITY_COEFF,
             unit.mana_cost / 150.0,
             unit.star_level / 3.0,
-            1.0 if unit.is_frontline else 0.0
+            1.0 if unit.range >= BACKLINE_MIN_RANGE else 0.0
         ]
         
         ab_type = [0.0] * len(self.ability_types)
@@ -362,7 +359,11 @@ class GameState:
                     if u is None:
                         op_vec.extend([0.0, 0.0, 0.0])
                     else:
-                        op_vec.extend([u.id / 50.0, u.star_level / 3.0, 1.0 if u.is_frontline else 0.0])
+                        op_vec.extend([
+                            u.id / 50.0,
+                            u.star_level / 3.0,
+                            1.0 if u.range >= BACKLINE_MIN_RANGE else 0.0,
+                        ])
                 obs.extend(op_vec)
                 
         return np.array(obs, dtype=np.float32)
