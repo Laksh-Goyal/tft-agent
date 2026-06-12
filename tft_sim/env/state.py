@@ -6,13 +6,14 @@ from tft_sim.game.units import UnitDatabase, Unit, try_combine
 from tft_sim.game.shop import PoolManager, roll_shop, reroll
 from tft_sim.game.combat import resolve_combat
 from tft_sim.game.traits import compute_active_traits
-from tft_sim.env.action_space import (
+from tft_sim.game.actions import (
     compute_action_mask, ACTION_PASS, ACTION_BUY_XP, ACTION_REROLL,
     ACTION_BUY_UNIT_START, ACTION_BUY_UNIT_END,
     ACTION_SELL_BENCH_START, ACTION_SELL_BENCH_END,
     ACTION_SELL_BOARD_START, ACTION_SELL_BOARD_END,
-    ACTION_PLACE_UNIT_START, ACTION_PLACE_UNIT_END
+    ACTION_PLACE_UNIT_START, ACTION_PLACE_UNIT_END,
 )
+from tft_sim.game.trait_effects import BACKLINE_MIN_RANGE
 
 # Constants for observation normalization
 MAX_GOLD = 50.0
@@ -25,7 +26,6 @@ MAX_DAMAGE = 500.0
 MAX_ARMOR = 200.0
 MAX_AS = 3.0
 MAX_ABILITY_COEFF = 5.0
-BACKLINE_MIN_RANGE = 3
 
 def xp_required(level: int) -> int:
     reqs = {1: 0, 2: 2, 3: 6, 4: 10, 5: 20, 6: 36, 7: 56, 8: 80, 9: 100}
@@ -64,13 +64,10 @@ class GameState:
         self.round_in_stage = 0  # 1-indexed for rounds
         self.actions_this_round = 0
 
-    def _max_rounds_in_stage(self, stage: int) -> int:
-        return max_rounds_in_stage(stage)
-        
     def start_round(self):
         self.actions_this_round = 0
         
-        max_rounds = self._max_rounds_in_stage(self.stage)
+        max_rounds = max_rounds_in_stage(self.stage)
         if self.round_in_stage >= max_rounds:
             self.stage += 1
             self.round_in_stage = 1
@@ -207,60 +204,65 @@ class GameState:
         return active <= 1
         
     def action_mask(self) -> np.ndarray:
+        """Legal actions for the RL agent (alias used by TFTEnv / MaskablePPO)."""
         return compute_action_mask(self.agent, self.unit_db)
-        
-    def apply_action(self, action: int):
-        self.actions_this_round += 1
-        p = self.agent
-        mask = self.action_mask()
+
+    def apply_action(self, action: int, player: Player, *, count_agent_action: bool = False):
+        """
+        Apply one planning action for any player.
+        count_agent_action: only True for the RL agent (increments round action budget).
+        """
+        if count_agent_action:
+            self.actions_this_round += 1
+        mask = compute_action_mask(player, self.unit_db)
         if action < 0 or action >= len(mask) or mask[action] == 0:
             raise ValueError(
                 f"Illegal action {action} at stage {self.stage}-{self.round_in_stage}"
             )
 
         if action == ACTION_BUY_XP:
-            p.gold -= 4
-            p.xp += 4
-            self._check_level_up(p)
+            player.gold -= 4
+            player.xp += 4
+            self._check_level_up(player)
 
         elif action == ACTION_REROLL:
-            reroll(p, self.pool, self.unit_db, self.rng)
+            reroll(player, self.pool, self.unit_db, self.rng)
 
         elif ACTION_BUY_UNIT_START <= action <= ACTION_BUY_UNIT_END:
             idx = action - ACTION_BUY_UNIT_START
-            unit_id = p.current_shop[idx]
+            unit_id = player.current_shop[idx]
             cost = self.unit_db.get_unit_base_data(unit_id)['cost']
-            p.gold -= cost
+            player.gold -= cost
 
             unit = self.unit_db.create_unit(unit_id)
-            for i in range(len(p.bench)):
-                if p.bench[i] is None:
-                    p.bench[i] = unit
+            for i in range(len(player.bench)):
+                if player.bench[i] is None:
+                    player.bench[i] = unit
                     break
-            p.current_shop[idx] = None
-            try_combine(p, unit_id, 1, self.unit_db)
+            player.current_shop[idx] = None
+            try_combine(player, unit_id, 1, self.unit_db)
 
         elif ACTION_SELL_BENCH_START <= action <= ACTION_SELL_BENCH_END:
             idx = action - ACTION_SELL_BENCH_START
-            unit = p.bench[idx]
-            p.gold += unit.cost
+            unit = player.bench[idx]
+            player.gold += unit.cost
             self.pool.return_unit(unit.id, unit.cost)
-            p.bench[idx] = None
+            player.bench[idx] = None
 
         elif ACTION_SELL_BOARD_START <= action <= ACTION_SELL_BOARD_END:
             idx = action - ACTION_SELL_BOARD_START
-            unit = p.board[idx]
-            p.gold += unit.cost
+            unit = player.board[idx]
+            player.gold += unit.cost
             self.pool.return_unit(unit.id, unit.cost)
-            p.board[idx] = None
+            player.board[idx] = None
 
         elif ACTION_PLACE_UNIT_START <= action <= ACTION_PLACE_UNIT_END:
             idx = action - ACTION_PLACE_UNIT_START
             b_idx = idx // 10
             d_idx = idx % 10
-            temp = p.board[d_idx]
-            p.board[d_idx] = p.bench[b_idx]
-            p.bench[b_idx] = temp
+            temp = player.board[d_idx]
+            player.board[d_idx] = player.bench[b_idx]
+            player.bench[b_idx] = temp
 
     def action_reward(self, action: int) -> float:
         return 0.0
@@ -298,7 +300,7 @@ class GameState:
     def to_observation(self) -> np.ndarray:
         p = self.agent
         obs = []
-        max_rounds = float(self._max_rounds_in_stage(self.stage))
+        max_rounds = float(max_rounds_in_stage(self.stage))
 
         # Economy (8)
         obs.extend([

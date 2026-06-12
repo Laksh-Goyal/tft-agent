@@ -21,14 +21,11 @@ class Unit:
     star_level: int = 1
     combat_bonus_hp: float = 0.0  # temporary shields (e.g. Sentinel), combat-only
 
-    def ability_coeff(self) -> float:
-        return self.ability_damage
-
     def resolved_ability_power(self) -> float:
         """Cast power after star scaling on AD/HP; coeff itself is not star-scaled."""
         if self.ability_type in ("heal", "shield"):
-            return self.hp * self.ability_coeff()
-        return self.attack_damage * self.ability_coeff()
+            return self.hp * self.ability_damage
+        return self.attack_damage * self.ability_damage
 
     def effective_hp(self):
         phys_reduction = 100 / (100 + self.armor)

@@ -4,6 +4,7 @@ import numpy as np
 
 from tft_sim.env.state import GameState
 from tft_sim.env.action_space import get_action_space, ACTION_PASS
+from tft_sim.agents.bot import assign_bot_strategies, run_bot_planning_phase
 
 class TFTEnv(gym.Env):
     def __init__(self, n_players=8, unit_roster_path="tft_sim/data/unit_roster.json"):
@@ -32,6 +33,8 @@ class TFTEnv(gym.Env):
             unit_roster_path=self.unit_roster_path,
             rng=self.np_random,
         )
+        # Random archetype per opponent; reproducible via reset(seed=...)
+        assign_bot_strategies(self.game.players, self.game.rng)
         self.game.start_round()
         obs = self.game.to_observation()
         info = {"action_mask": self.game.action_mask()}
@@ -42,7 +45,8 @@ class TFTEnv(gym.Env):
             raise RuntimeError("Must call reset() before step()")
             
         if action == ACTION_PASS or self.game.actions_this_round >= self.game.action_budget():
-            # End planning phase, trigger combat and advance to next round
+            # Agent done planning → opponents act → combat → next round
+            run_bot_planning_phase(self.game)
             reward = self.game.resolve_round()
             
             terminated = bool(self.game.agent.health <= 0)
@@ -52,7 +56,7 @@ class TFTEnv(gym.Env):
                 self.game.start_round()
         else:
             # Apply planning action
-            self.game.apply_action(action)
+            self.game.apply_action(action, self.game.agent, count_agent_action=True)
             reward = self.game.action_reward(action)
             terminated = False
             truncated = False

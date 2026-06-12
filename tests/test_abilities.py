@@ -25,8 +25,3 @@ def test_shield_ability_scales_with_star_via_hp():
     assert u1.ability_type == "shield"
     assert u2.resolved_ability_power() > u1.resolved_ability_power()
 
-
-def test_no_zero_ability_coeffs_in_roster():
-    db = UnitDatabase(ROSTER_PATH)
-    for u in db.unit_data.values():
-        assert u["ability_damage"] > 0

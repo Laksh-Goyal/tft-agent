@@ -7,7 +7,9 @@ A reinforcement-learning project for learning to play a stripped-down Teamfight 
 ```
 tft_sim/
   game/
-    player.py, shop.py, combat.py, units.py, traits.py, trait_effects.py
+    player.py, shop.py, combat.py, units.py, traits.py, trait_effects.py, actions.py
+  agents/
+    bot.py
   env/
     tft_env.py, state.py, action_space.py
   data/
@@ -57,15 +59,29 @@ Star levels scale `hp` and `attack_damage` only; coefficients stay fixed so abil
 | `ally_shield` (Sentinel) | Shield on lowest-HP ally (combat copy only) |
 | `mana_per_sec` (Invoker) | Lowers effective mana cost for ability throughput |
 
+## Scripted opponent bots
+
+Seven opponents plan after the agent passes (or hits the action budget), using the same masked action space. Each opponent is assigned a random **archetype** on `reset(seed=…)` (reproducible with seed).
+
+| Archetype | Playstyle |
+|-----------|-----------|
+| **HyperBuyer** | Spend on units aggressively, field strongest, never level |
+| **InterestSaver** | Hoard to 50g for max interest; only spend gold above 50 |
+| **Balanced** | Spec-style buy → XP → reroll → place |
+| **LevelRusher** | Prioritize XP to widen board, then fill units |
+| **Roller** | Reroll-heavy shop fishing, then buy and place |
+
+Policy / frozen-weight opponents are reserved for later self-play graduation.
+
 ## Current status
 
 **Implemented**
 
 - Gymnasium env with masked actions (~127), shop, combine, traits, range-based combat, ability coefficients
 - Full champion roster in [`tft_sim/data/unit_roster.json`](tft_sim/data/unit_roster.json) (30 units, 10 traits)
+- Multi-strategy scripted bots ([`tft_sim/agents/bot.py`](tft_sim/agents/bot.py))
 
 **Not yet implemented**
 
-- Scripted opponent bots
 - Carousel / PvE round types
-- RL training (`train.py`, MaskablePPO)
+- RL training (`train.py`, masked PPO)

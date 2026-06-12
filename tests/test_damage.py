@@ -55,4 +55,4 @@ def test_illegal_action_raises():
     game = GameState(n_players=2, rng=np.random.default_rng(0))
     game.start_round()
     with pytest.raises(ValueError, match="Illegal action"):
-        game.apply_action(999)
+        game.apply_action(999, game.agent, count_agent_action=True)

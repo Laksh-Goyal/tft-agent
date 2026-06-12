@@ -15,3 +15,4 @@ class Player:
     current_shop: List[Optional[int]]   = field(default_factory=lambda: [None] * 5)
     is_agent:     bool  = False
     is_eliminated: bool = False
+    bot_strategy_id: str = ""
