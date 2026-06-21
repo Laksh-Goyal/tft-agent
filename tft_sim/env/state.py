@@ -63,6 +63,7 @@ class GameState:
         self.stage = 1
         self.round_in_stage = 0  # 1-indexed for rounds
         self.actions_this_round = 0
+        self.rounds_completed = 0
 
     def start_round(self):
         self.actions_this_round = 0
@@ -154,6 +155,7 @@ class GameState:
         return agent_won, agent_lost
         
     def resolve_round(self) -> float:
+        self.rounds_completed += 1
         active = [p for p in self.players if not p.is_eliminated]
         if len(active) <= 1:
             return 0.0
