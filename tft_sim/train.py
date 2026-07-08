@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import copy
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -15,7 +16,13 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from tft_sim.agents.policy import ActorCriticNetwork, masked_distribution, select_action
+from tft_sim.agents.policy import (
+    ActorCriticNetwork,
+    StructuredActorCritic,
+    masked_distribution,
+    select_action,
+)
+from tft_sim.agents.policy_bot import PolicyBot
 from tft_sim.env.metrics import episode_metrics
 from tft_sim.env.tft_env import TFTEnv
 
@@ -27,9 +34,42 @@ EPS_CLIP = 0.2
 K_EPOCHS = 10
 MINI_BATCH_SIZE = 64
 N_STEPS = 2048
-ENTROPY_COEF = 0.01
+ENTROPY_COEF_START = 0.01
+ENTROPY_COEF_END = 0.001
 VALUE_LOSS_COEF = 0.5
+LEARNING_RATE_END = 1e-4
+MAX_GRAD_NORM = 0.5
 DEFAULT_TIMESTEPS = 500_000
+WIN_RATE_WINDOW = 500
+GRADUATION_THRESHOLD = 0.60
+MAX_POLICY_BOTS = 3
+
+
+def compute_gae(
+    rewards: list[float],
+    values: list[float],
+    dones: list[bool],
+    next_value: float,
+    gamma: float = GAMMA,
+    gae_lambda: float = GAE_LAMBDA,
+) -> list[float]:
+    """Generalized advantage estimation with optional bootstrap at rollout end."""
+    advantages: list[float] = []
+    gae = 0.0
+    bootstrap = next_value
+    for i in reversed(range(len(rewards))):
+        mask = 1.0 - float(dones[i])
+        delta = rewards[i] + gamma * bootstrap * mask - values[i]
+        gae = delta + gamma * gae_lambda * mask * gae
+        advantages.insert(0, gae)
+        bootstrap = values[i]
+    return advantages
+
+
+def _schedule(progress: float, start: float, end: float) -> float:
+    """Linear interpolate; progress in [0, 1]."""
+    progress = max(0.0, min(1.0, progress))
+    return start + (end - start) * progress
 
 
 def get_device() -> torch.device:
@@ -49,6 +89,9 @@ class RolloutBuffer:
     rewards: list = field(default_factory=list)
     masks: list = field(default_factory=list)
     dones: list = field(default_factory=list)
+    last_obs: np.ndarray | None = None
+    last_mask: np.ndarray | None = None
+    last_done: bool = True
 
     def clear(self):
         self.states.clear()
@@ -58,19 +101,98 @@ class RolloutBuffer:
         self.rewards.clear()
         self.masks.clear()
         self.dones.clear()
+        self.last_obs = None
+        self.last_mask = None
+        self.last_done = True
 
     def __len__(self):
         return len(self.states)
 
 
-class MaskedPPO:
-    def __init__(self, state_dim: int, action_dim: int, device: torch.device):
+class LeagueManager:
+    """Rolling win-rate tracker and policy-bot graduation (spec § Self-Play)."""
+
+    def __init__(
+        self,
+        device: torch.device,
+        state_dim: int,
+        action_dim: int,
+        arch: str = "flat_mlp",
+        unit_vec_size: int = 0,
+        save_dir: Path | None = None,
+    ):
         self.device = device
         self.state_dim = state_dim
         self.action_dim = action_dim
-        self.policy = ActorCriticNetwork(state_dim, action_dim).to(device)
-        self.policy_old = ActorCriticNetwork(state_dim, action_dim).to(device)
-        self.policy_old.load_state_dict(self.policy.state_dict())
+        self.arch = arch
+        self.unit_vec_size = unit_vec_size
+        self.save_dir = save_dir
+        self.policy_bots: list[PolicyBot] = []
+        self.placement_window: list[int] = []
+
+    def record_episode(self, metrics: dict) -> None:
+        self.placement_window.append(metrics["placement"])
+        if len(self.placement_window) > WIN_RATE_WINDOW:
+            self.placement_window.pop(0)
+
+    def win_rate(self) -> float:
+        if not self.placement_window:
+            return 0.0
+        return sum(1 for p in self.placement_window if p == 1) / len(self.placement_window)
+
+    def maybe_graduate(self, ppo: "MaskedPPO") -> bool:
+        if len(self.policy_bots) >= MAX_POLICY_BOTS:
+            return False
+        if len(self.placement_window) < WIN_RATE_WINDOW:
+            return False
+        if self.win_rate() <= GRADUATION_THRESHOLD:
+            return False
+        bot = PolicyBot.from_state_dict(
+            copy.deepcopy(ppo.policy.state_dict()),
+            self.state_dim,
+            self.action_dim,
+            self.device,
+            arch=self.arch,
+            unit_vec_size=self.unit_vec_size,
+        )
+        self.policy_bots.append(bot)
+        self.placement_window.clear()
+        self._persist()
+        return True
+
+    def _persist(self) -> None:
+        if self.save_dir is None:
+            return
+        league = {
+            "policy_bot_count": len(self.policy_bots),
+            "win_rate_window": WIN_RATE_WINDOW,
+            "graduation_threshold": GRADUATION_THRESHOLD,
+        }
+        (self.save_dir / "league.json").write_text(json.dumps(league, indent=2))
+
+
+class MaskedPPO:
+    def __init__(
+        self,
+        state_dim: int,
+        action_dim: int,
+        device: torch.device,
+        *,
+        arch: str = "flat_mlp",
+        unit_vec_size: int = 0,
+    ):
+        self.device = device
+        self.state_dim = state_dim
+        self.action_dim = action_dim
+        self.arch = arch
+        self.unit_vec_size = unit_vec_size
+        if arch == "structured_v1":
+            self.policy = StructuredActorCritic(
+                state_dim, action_dim, unit_vec_size
+            ).to(device)
+        else:
+            self.policy = ActorCriticNetwork(state_dim, action_dim).to(device)
+        self.policy_old = copy.deepcopy(self.policy)
         self.optimizer = optim.Adam(self.policy.parameters(), lr=LEARNING_RATE)
         self.mse = nn.MSELoss()
 
@@ -82,17 +204,28 @@ class MaskedPPO:
                 "optimizer_state_dict": self.optimizer.state_dict(),
                 "state_dim": self.state_dim,
                 "action_dim": self.action_dim,
+                "arch": self.arch,
+                "unit_vec_size": self.unit_vec_size,
             },
             path,
         )
 
     def load(self, path: Path):
         checkpoint = torch.load(path, map_location=self.device, weights_only=False)
+        self.arch = checkpoint.get("arch", "flat_mlp")
+        self.unit_vec_size = checkpoint.get("unit_vec_size", 0)
+        if self.arch == "structured_v1":
+            self.policy = StructuredActorCritic(
+                self.state_dim, self.action_dim, self.unit_vec_size
+            ).to(self.device)
+            self.policy_old = StructuredActorCritic(
+                self.state_dim, self.action_dim, self.unit_vec_size
+            ).to(self.device)
         self.policy.load_state_dict(checkpoint["policy_state_dict"])
         self.policy_old.load_state_dict(checkpoint["policy_state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
 
-    def update(self, buffer: RolloutBuffer):
+    def update(self, buffer: RolloutBuffer, *, ent_coef: float = ENTROPY_COEF_START):
         if len(buffer) == 0:
             return
 
@@ -102,18 +235,21 @@ class MaskedPPO:
         old_values = torch.FloatTensor(np.array(buffer.values)).to(self.device)
         old_masks = torch.FloatTensor(np.array(buffer.masks)).to(self.device)
 
-        advantages = []
-        gae = 0.0
-        next_value = 0.0
-        for i in reversed(range(len(buffer.rewards))):
-            mask = 1.0 - float(buffer.dones[i])
-            delta = buffer.rewards[i] + GAMMA * next_value * mask - buffer.values[i]
-            gae = delta + GAMMA * GAE_LAMBDA * mask * gae
-            advantages.insert(0, gae)
-            next_value = buffer.values[i]
+        if buffer.last_done or buffer.last_obs is None:
+            next_value = 0.0
+        else:
+            with torch.no_grad():
+                state_t = torch.as_tensor(
+                    buffer.last_obs, dtype=torch.float32, device=self.device
+                )
+                _, v = self.policy_old(state_t)
+                next_value = v.squeeze().item()
 
-        returns = torch.tensor(advantages, dtype=torch.float32, device=self.device) + old_values
-        advantages = torch.tensor(advantages, dtype=torch.float32, device=self.device)
+        adv_list = compute_gae(
+            buffer.rewards, buffer.values, buffer.dones, next_value
+        )
+        advantages = torch.tensor(adv_list, dtype=torch.float32, device=self.device)
+        returns = advantages + old_values
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-7)
 
         dataset_size = old_states.size(0)
@@ -141,11 +277,12 @@ class MaskedPPO:
                 loss = (
                     -torch.min(surr1, surr2)
                     + VALUE_LOSS_COEF * self.mse(state_values, batch_returns)
-                    - ENTROPY_COEF * entropy
+                    - ent_coef * entropy
                 )
 
                 self.optimizer.zero_grad()
                 loss.mean().backward()
+                torch.nn.utils.clip_grad_norm_(self.policy.parameters(), MAX_GRAD_NORM)
                 self.optimizer.step()
 
         self.policy_old.load_state_dict(self.policy.state_dict())
@@ -157,6 +294,8 @@ def _log_update(
     episode_rewards: list[float],
     metrics_log: list[dict],
     window: int = 10,
+    policy_bot_count: int = 0,
+    win_rate: float = 0.0,
 ) -> dict:
     recent_rewards = episode_rewards[-window:]
     recent_metrics = metrics_log[-window:]
@@ -167,13 +306,16 @@ def _log_update(
         "placement": float(np.mean([m["placement"] for m in recent_metrics])) if recent_metrics else 0.0,
         "rounds_survived": float(np.mean([m["rounds_survived"] for m in recent_metrics])) if recent_metrics else 0.0,
         "board_power": float(np.mean([m["board_power"] for m in recent_metrics])) if recent_metrics else 0.0,
+        "policy_bot_count": policy_bot_count,
+        "win_rate": win_rate,
     }
     print(
         f"update {summary['update']} | steps {summary['timesteps']} | "
         f"avg_ep_reward({window})={summary['avg_ep_reward']:.3f} | "
         f"placement={summary['placement']:.1f} | "
         f"rounds={summary['rounds_survived']:.1f} | "
-        f"board_power={summary['board_power']:.1f}"
+        f"board_power={summary['board_power']:.1f} | "
+        f"policy_bots={policy_bot_count} | win_rate={win_rate:.2f}"
     )
     return summary
 
@@ -186,17 +328,29 @@ def train(
     save_dir: Path | None = None,
     checkpoint_interval: int = 10,
     resume_from: Path | None = None,
+    curriculum: str = "full",
+    curriculum_switch_updates: int | None = None,
+    arch: str = "flat_mlp",
 ):
     device = get_device()
-    env = TFTEnv(n_players=n_players)
+    curriculum_mode = "stage1_economy" if curriculum == "stage1" else "full"
+    env = TFTEnv(n_players=n_players, curriculum_mode=curriculum_mode)
     obs, info = env.reset(seed=seed)
     state_dim = obs.shape[0]
     action_dim = env.action_space.n
+    unit_vec_size = env.game.unit_vec_size if env.game else 0
 
-    ppo = MaskedPPO(state_dim, action_dim, device)
+    ppo = MaskedPPO(
+        state_dim, action_dim, device, arch=arch, unit_vec_size=unit_vec_size
+    )
     if resume_from is not None:
         ppo.load(resume_from)
         print(f"Resumed from {resume_from}")
+
+    league = LeagueManager(
+        device, state_dim, action_dim, arch=arch, unit_vec_size=unit_vec_size, save_dir=save_dir
+    )
+    env.set_policy_bots(league.policy_bots)
 
     if save_dir is not None:
         save_dir.mkdir(parents=True, exist_ok=True)
@@ -206,8 +360,12 @@ def train(
             "seed": seed,
             "state_dim": int(state_dim),
             "action_dim": int(action_dim),
+            "unit_vec_size": int(unit_vec_size),
+            "arch": arch,
             "n_steps": N_STEPS,
             "learning_rate": LEARNING_RATE,
+            "curriculum": curriculum,
+            "curriculum_switch_updates": curriculum_switch_updates,
         }
         (save_dir / "config.json").write_text(json.dumps(config, indent=2))
 
@@ -237,18 +395,46 @@ def train(
         timesteps += 1
 
         if done:
+            m = episode_metrics(env.game)
             episode_rewards.append(ep_reward)
-            metrics_log.append(episode_metrics(env.game))
+            metrics_log.append(m)
+            league.record_episode(m)
             ep_reward = 0.0
             obs, info = env.reset()
 
         if len(buffer) >= N_STEPS:
-            ppo.update(buffer)
+            buffer.last_obs = obs.copy()
+            buffer.last_mask = info["action_mask"].copy()
+            buffer.last_done = done
+            progress = timesteps / total_timesteps
+            ent_coef = _schedule(progress, ENTROPY_COEF_START, ENTROPY_COEF_END)
+            lr = _schedule(progress, LEARNING_RATE, LEARNING_RATE_END)
+            for pg in ppo.optimizer.param_groups:
+                pg["lr"] = lr
+            ppo.update(buffer, ent_coef=ent_coef)
             buffer.clear()
             update_num += 1
+            if (
+                curriculum == "stage1"
+                and curriculum_switch_updates is not None
+                and update_num >= curriculum_switch_updates
+                and env.curriculum_mode != "full"
+            ):
+                env.curriculum_mode = "full"
+                print(f"  curriculum switched to full at update {update_num}")
+            if league.maybe_graduate(ppo):
+                env.set_policy_bots(league.policy_bots)
+                print(f"  graduated policy bot (total={len(league.policy_bots)})")
             if update_num % log_interval == 0 and episode_rewards:
                 update_summaries.append(
-                    _log_update(update_num, timesteps, episode_rewards, metrics_log)
+                    _log_update(
+                        update_num,
+                        timesteps,
+                        episode_rewards,
+                        metrics_log,
+                        policy_bot_count=len(league.policy_bots),
+                        win_rate=league.win_rate(),
+                    )
                 )
             if save_dir and update_num % checkpoint_interval == 0:
                 ckpt = save_dir / f"checkpoint_{update_num:04d}.pt"
@@ -256,16 +442,29 @@ def train(
                 print(f"  saved {ckpt}")
 
     if len(buffer) > 0:
-        ppo.update(buffer)
+        buffer.last_obs = obs.copy()
+        buffer.last_mask = info["action_mask"].copy()
+        buffer.last_done = done
+        progress = min(1.0, timesteps / total_timesteps)
+        ent_coef = _schedule(progress, ENTROPY_COEF_START, ENTROPY_COEF_END)
+        ppo.update(buffer, ent_coef=ent_coef)
         buffer.clear()
         update_num += 1
         if episode_rewards:
             update_summaries.append(
-                _log_update(update_num, timesteps, episode_rewards, metrics_log)
+                _log_update(
+                    update_num,
+                    timesteps,
+                    episode_rewards,
+                    metrics_log,
+                    policy_bot_count=len(league.policy_bots),
+                    win_rate=league.win_rate(),
+                )
             )
 
     if save_dir:
         ppo.save(save_dir / "final.pt")
+        league._persist()
         history = {
             "episode_rewards": episode_rewards,
             "metrics_log": metrics_log,
@@ -293,6 +492,26 @@ def main():
     parser.add_argument("--checkpoint-interval", type=int, default=10)
     parser.add_argument("--log-interval", type=int, default=1)
     parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint .pt")
+    parser.add_argument(
+        "--curriculum",
+        type=str,
+        default="full",
+        choices=["full", "stage1"],
+        help="stage1 = economy-only episodes first",
+    )
+    parser.add_argument(
+        "--curriculum-switch-updates",
+        type=int,
+        default=None,
+        help="Switch from stage1 to full after N PPO updates",
+    )
+    parser.add_argument(
+        "--arch",
+        type=str,
+        default="flat_mlp",
+        choices=["flat_mlp", "structured_v1"],
+        help="Policy architecture",
+    )
     args = parser.parse_args()
 
     print(f"Device: {get_device()}")
@@ -304,6 +523,9 @@ def main():
         save_dir=Path(args.save_dir),
         checkpoint_interval=args.checkpoint_interval,
         resume_from=Path(args.resume) if args.resume else None,
+        curriculum=args.curriculum,
+        curriculum_switch_updates=args.curriculum_switch_updates,
+        arch=args.arch,
     )
     print(
         f"Done: {stats['timesteps']} steps, {stats['updates']} updates, "

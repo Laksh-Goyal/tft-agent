@@ -25,7 +25,7 @@ ACTION_PLACE_UNIT_START = 37  # bench b × board d → index 37 + b*10 + d
 ACTION_PLACE_UNIT_END = 126
 
 
-def compute_action_mask(player, unit_db: UnitDatabase) -> np.ndarray:
+def compute_action_mask(player, unit_db: UnitDatabase, *, free_shop: bool = False) -> np.ndarray:
     """
     Boolean mask for a player's legal actions this step.
     1 = legal, 0 = illegal.
@@ -48,7 +48,7 @@ def compute_action_mask(player, unit_db: UnitDatabase) -> np.ndarray:
     for i, unit_id in enumerate(player.current_shop):
         if unit_id is not None and not bench_full:
             unit_data = unit_db.get_unit_base_data(unit_id)
-            if unit_data and player.gold >= unit_data['cost']:
+            if unit_data and (free_shop or player.gold >= unit_data['cost']):
                 mask[ACTION_BUY_UNIT_START + i] = 1
 
     # sell_bench(i) → bench slot occupied

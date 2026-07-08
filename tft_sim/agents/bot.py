@@ -237,11 +237,19 @@ STRATEGY_REGISTRY = {
 }
 
 
+def pick_carousel_unit(mask: np.ndarray) -> int:
+    for action in range(ACTION_BUY_UNIT_START, ACTION_BUY_UNIT_END + 1):
+        if mask[action]:
+            return action
+    return ACTION_PASS
+
+
 def assign_bot_strategies(players, rng) -> None:
     """Pick one archetype per opponent at game start (seeded, with replacement)."""
     for player in players:
         if player.is_agent:
             continue
+        player.opponent_type = "scripted"
         player.bot_strategy_id = rng.choice(list(ARCHETYPE_IDS))
 
 
@@ -250,10 +258,24 @@ def run_bot_planning_phase(game) -> None:
     Run each opponent's planning loop until pass or action budget.
     Called by TFTEnv after the agent finishes planning, before combat.
     """
+    if game.round_type == "carousel":
+        for player in game.players:
+            if player.is_agent or player.is_eliminated:
+                continue
+            if game.carousel_picked.get(id(player), False):
+                continue
+            mask = compute_action_mask(player, game.unit_db, free_shop=True)
+            action = pick_carousel_unit(mask)
+            if action != ACTION_PASS:
+                game.apply_action(action, player, count_agent_action=False)
+        return
+
     budget = game.action_budget()
     for player in game.players:
         if player.is_agent or player.is_eliminated:
             continue
+        if getattr(player, "opponent_type", "scripted") == "policy":
+            continue  # policy bots act via PolicyBot in tft_env
         strategy = STRATEGY_REGISTRY[player.bot_strategy_id]
         actions_taken = 0
         while actions_taken < budget:

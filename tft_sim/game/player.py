@@ -16,3 +16,5 @@ class Player:
     is_agent:     bool  = False
     is_eliminated: bool = False
     bot_strategy_id: str = ""
+    opponent_type: str = "scripted"  # "scripted" | "policy"
+    policy_bot_index: int = -1

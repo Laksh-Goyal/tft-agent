@@ -8,6 +8,14 @@ def board_power(player: Player) -> int:
     return sum(u.cost for u in player.board if u is not None)
 
 
+PLACEMENT_REWARD_SCALE = 0.5
+
+
+def placement_reward(placement: int) -> float:
+    """Terminal bonus aligned with spec: 1st = +4.0, 8th = +0.5."""
+    return (9 - placement) * PLACEMENT_REWARD_SCALE
+
+
 def agent_placement(game: GameState) -> int:
     """Agent finish rank 1 (best) through n_players (worst)."""
     alive = sorted(

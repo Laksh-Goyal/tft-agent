@@ -5,7 +5,12 @@ from tft_sim.game.player import Player
 from tft_sim.game.units import UnitDatabase, Unit, try_combine
 from tft_sim.game.shop import PoolManager, roll_shop, reroll
 from tft_sim.game.combat import resolve_combat
-from tft_sim.game.traits import compute_active_traits
+from tft_sim.game.traits import (
+    compute_active_traits,
+    trait_counts,
+    detect_new_breakpoints,
+    synergy_obs_pair,
+)
 from tft_sim.game.actions import (
     compute_action_mask, ACTION_PASS, ACTION_BUY_XP, ACTION_REROLL,
     ACTION_BUY_UNIT_START, ACTION_BUY_UNIT_END,
@@ -14,6 +19,12 @@ from tft_sim.game.actions import (
     ACTION_PLACE_UNIT_START, ACTION_PLACE_UNIT_END,
 )
 from tft_sim.game.trait_effects import BACKLINE_MIN_RANGE
+from tft_sim.game.rounds import determine_round_type
+from tft_sim.game.pve import (
+    resolve_pve_round,
+    resolve_carousel_round,
+    setup_carousel_shop,
+)
 
 # Constants for observation normalization
 MAX_GOLD = 50.0
@@ -27,6 +38,8 @@ MAX_ARMOR = 200.0
 MAX_AS = 3.0
 MAX_ABILITY_COEFF = 5.0
 
+TRAIT_BREAKPOINT_REWARD = 0.05
+
 def xp_required(level: int) -> int:
     reqs = {1: 0, 2: 2, 3: 6, 4: 10, 5: 20, 6: 36, 7: 56, 8: 80, 9: 100}
     return reqs.get(level, 100)
@@ -38,6 +51,29 @@ def max_rounds_in_stage(stage: int) -> int:
     if stage == 5:
         return 5
     return 6
+
+
+def compute_obs_layout(n_traits: int, unit_vec_size: int, n_opponents: int = 7) -> dict:
+    """Fixed slice indices for parsing flat observations."""
+    econ = 8
+    context = 4
+    board = 10 * unit_vec_size
+    bench = 9 * unit_vec_size
+    shop = 5 * unit_vec_size
+    synergies = n_traits * 2
+    opponents = n_opponents * 34
+    return {
+        "econ_end": econ,
+        "context_end": econ + context,
+        "board_end": econ + context + board,
+        "bench_end": econ + context + board + bench,
+        "shop_end": econ + context + board + bench + shop,
+        "synergy_end": econ + context + board + bench + shop + synergies,
+        "total": econ + context + board + bench + shop + synergies + opponents,
+        "unit_vec_size": unit_vec_size,
+        "n_traits": n_traits,
+    }
+
 
 class GameState:
     def __init__(
@@ -64,6 +100,10 @@ class GameState:
         self.round_in_stage = 0  # 1-indexed for rounds
         self.actions_this_round = 0
         self.rounds_completed = 0
+        self._pending_action_reward = 0.0
+        self.round_type = "pvp"
+        self.carousel_options: list[int] = []
+        self.carousel_picked: dict[int, bool] = {}
 
     def start_round(self):
         self.actions_this_round = 0
@@ -74,23 +114,25 @@ class GameState:
             self.round_in_stage = 1
         else:
             self.round_in_stage += 1
+
+        self.round_type = determine_round_type(self.stage, self.round_in_stage)
+        self.carousel_picked = {}
                 
-        # Income and shop phase
-        for p in self.players:
-            if p.is_eliminated:
-                continue
-            
-            # Passive XP
-            if self.stage > 1 or self.round_in_stage > 1:  # Don't give xp on 1-1
-                p.xp += 2
-                self._check_level_up(p)
+        if self.round_type == "carousel":
+            setup_carousel_shop(self)
+        else:
+            for p in self.players:
+                if p.is_eliminated:
+                    continue
                 
-            # Income
-            p.gold += self._calculate_income(p)
-            
-            # Return old shop and generate new
-            self.pool.return_units(p.current_shop, self.unit_db)
-            p.current_shop = roll_shop(p, self.pool, self.unit_db, self.rng)
+                # Passive XP
+                if self.stage > 1 or self.round_in_stage > 1:
+                    p.xp += 2
+                    self._check_level_up(p)
+                    
+                p.gold += self._calculate_income(p)
+                self.pool.return_units(p.current_shop, self.unit_db)
+                p.current_shop = roll_shop(p, self.pool, self.unit_db, self.rng)
             
     def _calculate_income(self, p: Player) -> int:
         if self.stage == 1 and self.round_in_stage <= 2:
@@ -156,6 +198,11 @@ class GameState:
         
     def resolve_round(self) -> float:
         self.rounds_completed += 1
+        if self.round_type == "carousel":
+            return resolve_carousel_round(self)
+        if self.round_type == "pve_creep":
+            return resolve_pve_round(self)
+
         active = [p for p in self.players if not p.is_eliminated]
         if len(active) <= 1:
             return 0.0
@@ -207,7 +254,15 @@ class GameState:
         
     def action_mask(self) -> np.ndarray:
         """Legal actions for the RL agent (alias used by TFTEnv / MaskablePPO)."""
-        return compute_action_mask(self.agent, self.unit_db)
+        mask = compute_action_mask(self.agent, self.unit_db, free_shop=self.round_type == "carousel")
+        if self.round_type == "carousel":
+            mask[ACTION_BUY_XP] = 0
+            mask[ACTION_REROLL] = 0
+            agent_key = id(self.agent)
+            if self.carousel_picked.get(agent_key, False):
+                mask[:] = 0
+                mask[ACTION_PASS] = 1
+        return mask
 
     def apply_action(self, action: int, player: Player, *, count_agent_action: bool = False):
         """
@@ -216,7 +271,10 @@ class GameState:
         """
         if count_agent_action:
             self.actions_this_round += 1
-        mask = compute_action_mask(player, self.unit_db)
+            before_traits = trait_counts(player.board)
+        mask = compute_action_mask(
+            player, self.unit_db, free_shop=self.round_type == "carousel"
+        )
         if action < 0 or action >= len(mask) or mask[action] == 0:
             raise ValueError(
                 f"Illegal action {action} at stage {self.stage}-{self.round_in_stage}"
@@ -233,8 +291,11 @@ class GameState:
         elif ACTION_BUY_UNIT_START <= action <= ACTION_BUY_UNIT_END:
             idx = action - ACTION_BUY_UNIT_START
             unit_id = player.current_shop[idx]
-            cost = self.unit_db.get_unit_base_data(unit_id)['cost']
-            player.gold -= cost
+            cost = 0 if self.round_type == "carousel" else self.unit_db.get_unit_base_data(unit_id)['cost']
+            if self.round_type != "carousel":
+                player.gold -= cost
+            elif self.carousel_picked.get(id(player), False):
+                raise ValueError("Already picked from carousel")
 
             unit = self.unit_db.create_unit(unit_id)
             for i in range(len(player.bench)):
@@ -243,6 +304,8 @@ class GameState:
                     break
             player.current_shop[idx] = None
             try_combine(player, unit_id, 1, self.unit_db)
+            if self.round_type == "carousel":
+                self.carousel_picked[id(player)] = True
 
         elif ACTION_SELL_BENCH_START <= action <= ACTION_SELL_BENCH_END:
             idx = action - ACTION_SELL_BENCH_START
@@ -266,8 +329,17 @@ class GameState:
             player.board[d_idx] = player.bench[b_idx]
             player.bench[b_idx] = temp
 
+        if count_agent_action:
+            after_traits = trait_counts(player.board)
+            new_bps = detect_new_breakpoints(
+                before_traits, after_traits, self.unit_db.trait_data
+            )
+            self._pending_action_reward = TRAIT_BREAKPOINT_REWARD * len(new_bps)
+
     def action_reward(self, action: int) -> float:
-        return 0.0
+        reward = self._pending_action_reward
+        self._pending_action_reward = 0.0
+        return reward
 
     def _build_unit_vector(self, unit: Optional[Unit]) -> List[float]:
         if unit is None:
@@ -300,7 +372,10 @@ class GameState:
         return vec
         
     def to_observation(self) -> np.ndarray:
-        p = self.agent
+        return self.to_observation_for(self.agent)
+
+    def to_observation_for(self, player: Player) -> np.ndarray:
+        p = player
         obs = []
         max_rounds = float(max_rounds_in_stage(self.stage))
 
@@ -316,11 +391,12 @@ class GameState:
             self.round_in_stage / max_rounds
         ])
         
-        # Context (3)
-        is_pvp = 1.0 if self.stage > 1 or self.round_in_stage > 4 else 0.0
-        is_pve = 1.0 - is_pvp
+        # Context (4): round-type flags + players alive
+        is_carousel = 1.0 if self.round_type == "carousel" else 0.0
+        is_pvp = 1.0 if self.round_type == "pvp" else 0.0
+        is_pve = 1.0 if self.round_type == "pve_creep" else 0.0
         players_alive = sum(1 for pl in self.players if not pl.is_eliminated) / float(self.n_players)
-        obs.extend([is_pvp, is_pve, players_alive])
+        obs.extend([is_carousel, is_pvp, is_pve, players_alive])
         
         # Board (10 * U)
         for u in p.board:
@@ -339,16 +415,15 @@ class GameState:
                 obs.extend(self._build_unit_vector(None))
                 
         # Synergies (N * 2)
-        active = compute_active_traits(p.board, self.unit_db.trait_data)
+        counts = trait_counts(p.board)
         for t in self.all_traits:
-            if t in active:
-                obs.extend([1.0, 1.0])
-            else:
-                obs.extend([0.0, 0.0])
+            c = counts.get(t, 0)
+            cn, prog = synergy_obs_pair(t, c, self.unit_db.trait_data)
+            obs.extend([cn, prog])
                 
-        # Opponents (7 * 34)
+        # Opponents (7 * 34) — from this player's perspective, others are opponents
         for op in self.players:
-            if op == self.agent:
+            if op is p:
                 continue
             if op.is_eliminated:
                 obs.extend([0.0] * 34)

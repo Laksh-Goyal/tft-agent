@@ -2,6 +2,8 @@ import copy
 
 from tft_sim.game.combat import resolve_combat
 from tft_sim.game.trait_effects import apply_void_debuff, apply_sentinel_shields
+from tft_sim.game.rounds import determine_round_type
+from tft_sim.game.traits import detect_new_breakpoints, synergy_obs_pair
 from tft_sim.game.units import UnitDatabase
 ROSTER_PATH = "tft_sim/data/unit_roster.json"
 
@@ -36,3 +38,31 @@ def test_bruiser_hp_multiplier_in_combat():
     board_b = [None] * 10
     winner, _ = resolve_combat(board_a, traits, board_b, {})
     assert winner == "A"
+
+
+def test_determine_round_types():
+    assert determine_round_type(1, 1) == "carousel"
+    assert determine_round_type(1, 2) == "pve_creep"
+    assert determine_round_type(2, 1) == "pve_creep"
+    assert determine_round_type(2, 2) == "pvp"
+
+
+def test_detect_new_breakpoints():
+    db = UnitDatabase(ROSTER_PATH)
+    trait = next(
+        t for t, data in db.trait_data.items() if 2 in data["breakpoints"]
+    )
+    before = {trait: 1}
+    after = {trait: 2}
+    new = detect_new_breakpoints(before, after, db.trait_data)
+    assert trait in new
+
+
+def test_synergy_obs_pair():
+    db = UnitDatabase(ROSTER_PATH)
+    trait = sorted(db.trait_data.keys())[0]
+    cn, prog = synergy_obs_pair(trait, 0, db.trait_data)
+    assert cn == 0.0
+    assert prog == 0.0
+    cn2, prog2 = synergy_obs_pair(trait, 2, db.trait_data)
+    assert cn2 > 0.0
