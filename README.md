@@ -1,5 +1,9 @@
 # tft-agent
 
+> **Agents:** read [CONTEXT.md](CONTEXT.md) before starting any task. It is the
+> leading context document: what has been built, current status, conventions,
+> bugs already fixed, and remaining work.
+
 A reinforcement-learning project for learning to play a stripped-down Teamfight Tactics (TFT)–style autobattler. The simulator and environment design are documented in [docs/tft_rl_spec.md](docs/tft_rl_spec.md).
 
 The project has two implementations:
@@ -25,10 +29,15 @@ tft_sim/
     step.py                      # Action mask, apply_action, env step, round resolution
     combat.py                    # Analytical combat resolution (team stats, traits, TTK)
     ppo.py                       # Flax actor-critic, GAE, PPO update, training loop
+    bots.py                      # JIT scripted archetypes
+    league.py                    # Self-play graduation
+    checkpoint.py                # Orbax save/restore
+    train.py                     # JAX training CLI
     benchmark.py                 # JAX vs PyTorch wall-clock comparison
 scripts/
   validate_env.py
   eval_policy.py
+  eval_policy_jax.py
   data/
     unit_roster.json
 tests/
@@ -101,7 +110,13 @@ PYTHONPATH=. python tutorials/01_jax_fundamentals.py
 | Flax actor-critic (flat MLP + structured encoder) | [`tft_sim/jax_port/ppo.py`](tft_sim/jax_port/ppo.py) |
 | GAE via `jax.lax.scan` | [`tft_sim/jax_port/ppo.py`](tft_sim/jax_port/ppo.py) |
 | PPO update with Optax (grad clip + Adam + LR schedule) | [`tft_sim/jax_port/ppo.py`](tft_sim/jax_port/ppo.py) |
-| JIT-compiled rollout collection via `jax.lax.scan` | [`tft_sim/jax_port/ppo.py`](tft_sim/jax_port/ppo.py) |
+| `k_epochs` minibatches + episode reset | [`tft_sim/jax_port/ppo.py`](tft_sim/jax_port/ppo.py) |
+| Pool tracking + shop odds | [`tft_sim/jax_port/game_state.py`](tft_sim/jax_port/game_state.py) |
+| Unit combining (3 copies → next star) | [`try_combine_jax`](tft_sim/jax_port/step.py) |
+| Scripted bot planning (5 archetypes) | [`tft_sim/jax_port/bots.py`](tft_sim/jax_port/bots.py) |
+| Self-play graduation | [`tft_sim/jax_port/league.py`](tft_sim/jax_port/league.py) |
+| Orbax checkpoints | [`tft_sim/jax_port/checkpoint.py`](tft_sim/jax_port/checkpoint.py) |
+| Training CLI | [`tft_sim/jax_port/train.py`](tft_sim/jax_port/train.py) |
 | `vmap` parallel environments | [`tft_sim/jax_port/step.py`](tft_sim/jax_port/step.py) |
 
 ### Benchmark: JAX vs PyTorch (CPU)
@@ -148,9 +163,25 @@ python scripts/eval_policy.py --checkpoint runs/exp1/final.pt --episodes 200 --d
 
 Training logs include `placement`, `rounds_survived`, `board_power`, `policy_bot_count`, and rolling `win_rate`. League state is saved to `runs/<exp>/league.json` when policy bots graduate.
 
+## JAX train and evaluate
+
+```bash
+# Smoke
+PYTHONPATH=. python -m tft_sim.jax_port.train --timesteps 10000 --seed 0 \
+  --save-dir runs/jax_smoke --n-steps 256
+
+# Resume
+PYTHONPATH=. python -m tft_sim.jax_port.train --timesteps 50000 \
+  --save-dir runs/jax_smoke --resume runs/jax_smoke/final
+
+# Evaluate a JAX checkpoint vs scripted bots
+PYTHONPATH=. python scripts/eval_policy_jax.py --checkpoint runs/jax_exp0/final \
+  --episodes 50 --seed 42
+```
+
 ## JAX port status
 
-The JAX port is a work in progress. What's done:
+The JAX port is trainable. What's done:
 
 - [x] Static data layer (unit roster, traits, action IDs as JAX arrays, verified against PyTorch)
 - [x] Game state (PlayerState, GameState as flax.struct PyTrees, observation verified at 846 dims)
@@ -158,15 +189,17 @@ The JAX port is a work in progress. What's done:
 - [x] Combat resolution (analytical team stats, trait effects, time-to-kill, cross-checked vs PyTorch)
 - [x] PPO agent (Flax actor-critic, GAE via scan, PPO update, rollout collection, training loop)
 - [x] Benchmark (JAX vs PyTorch wall-clock comparison)
+- [x] Pool management (shop reroll with proper pool tracking)
+- [x] Unit combining (star level upgrades)
+- [x] Bot planning phase (scripted opponents in JAX)
+- [x] Self-play graduation (LeagueManager in JAX)
+- [x] Orbax checkpointing integration
+- [x] Training run with learning curves (`runs/jax_exp0`; multi-million-step run still open)
+- [x] Full 8-player pairing in `resolve_round_jax` (shuffle / pair / ghost; placement 1–8)
 
-What's next:
+Still open:
 
-- [ ] Bot planning phase (scripted opponents in JAX)
-- [ ] Self-play graduation (LeagueManager in JAX)
-- [ ] Pool management (shop reroll with proper pool tracking)
-- [ ] Unit combining (star level upgrades)
-- [ ] Orbax checkpointing integration
-- [ ] Full training run with learning curves
+- [ ] Multi-million-step JAX analogue of exp1
 
 ## Round types
 

@@ -48,6 +48,11 @@ from tft_sim.jax_port.static_data import (
     ACTION_SELL_BENCH_START, ACTION_SELL_BENCH_END,
     ACTION_SELL_BOARD_START, ACTION_SELL_BOARD_END,
     ACTION_PLACE_UNIT_START, ACTION_PLACE_UNIT_END,
+    N_COST_TIERS, N_ARCHETYPES, N_PLAYERS_DEFAULT, POOL_PADDING,
+    INCOME_BASE, INCOME_EARLY, INTEREST_GOLD_STEP, INTEREST_CAP,
+    STREAK_BONUS_TIER_2, STREAK_BONUS_TIER_3, STREAK_BONUS_TIER_5,
+    STREAK_THRESHOLD_2, STREAK_THRESHOLD_3, STREAK_THRESHOLD_5,
+    PASSIVE_XP, MAX_LEVEL_INT, CAROUSEL_N_OPTIONS,
 )
 
 
@@ -141,7 +146,7 @@ def make_pool(static: StaticData) -> PoolState:
     for unit_id in range(static.n_units):
         cost = int(static.unit_costs[unit_id])
         n_per_cost[cost] += int(POOL_SIZES[cost])
-    max_pool = int(n_per_cost.max())
+    max_pool = int(n_per_cost.max()) + int(POOL_PADDING)
 
     pool_ids = np.full((6, max_pool), -1, dtype=np.int32)
     pool_counts = np.zeros(6, dtype=np.int32)
@@ -158,6 +163,159 @@ def make_pool(static: StaticData) -> PoolState:
         pool_ids=jnp.array(pool_ids),
         pool_counts=jnp.array(pool_counts),
     )
+
+
+def tree_where(cond, on_true, on_false):
+    """Scalar-condition select over a PyTree (jnp.where does not accept structs)."""
+    return jax.tree_util.tree_map(
+        lambda a, b: jnp.where(cond, a, b), on_true, on_false
+    )
+
+
+def return_to_pool(pool: PoolState, unit_id: jnp.ndarray,
+                   cost: jnp.ndarray) -> PoolState:
+    """Append one copy of unit_id to its cost tier (shop.py:45-47).
+
+    Empty slots (unit_id < 0) are a no-op. Star level is ignored: sell
+    always returns a single base-cost copy.
+    """
+    safe_cost = jnp.clip(cost, 0, N_COST_TIERS - 1)
+    valid = (unit_id >= 0) & (cost >= 1) & (cost <= 5)
+    count = pool.pool_counts[safe_cost]
+    max_pool = pool.pool_ids.shape[1]
+    can_return = valid & (count < max_pool)
+    slot = jnp.clip(count, 0, max_pool - 1)
+    new_ids = pool.pool_ids.at[safe_cost, slot].set(
+        jnp.where(can_return, unit_id, pool.pool_ids[safe_cost, slot])
+    )
+    new_counts = pool.pool_counts.at[safe_cost].set(
+        jnp.where(can_return, count + 1, count)
+    )
+    return PoolState(pool_ids=new_ids, pool_counts=new_counts)
+
+
+def reserve_from_pool(pool: PoolState, unit_id: jnp.ndarray,
+                      cost: jnp.ndarray) -> tuple:
+    """Remove one copy of unit_id from its cost tier (shop.py:38-43).
+
+    Uses swap-with-last on the filled prefix. Returns (new_pool, success).
+    """
+    safe_cost = jnp.clip(cost, 0, N_COST_TIERS - 1)
+    ids = pool.pool_ids[safe_cost]
+    count = pool.pool_counts[safe_cost]
+    filled = jnp.arange(ids.shape[0]) < count
+    matches = (ids == unit_id) & filled & (unit_id >= 0)
+    has_match = jnp.any(matches)
+    match_idx = jnp.argmax(matches)
+    last_idx = jnp.clip(count - 1, 0, ids.shape[0] - 1)
+    last_id = ids[last_idx]
+    new_row = ids.at[match_idx].set(jnp.where(has_match, last_id, ids[match_idx]))
+    new_row = new_row.at[last_idx].set(
+        jnp.where(has_match, jnp.int32(-1), new_row[last_idx])
+    )
+    new_ids = pool.pool_ids.at[safe_cost].set(new_row)
+    new_counts = pool.pool_counts.at[safe_cost].set(
+        jnp.where(has_match, count - 1, count)
+    )
+    return PoolState(pool_ids=new_ids, pool_counts=new_counts), has_match
+
+
+def reserve_index(pool: PoolState, cost: jnp.ndarray,
+                  idx: jnp.ndarray) -> PoolState:
+    """Remove the unit at pool_ids[cost, idx] via swap-with-last."""
+    safe_cost = jnp.clip(cost, 0, N_COST_TIERS - 1)
+    ids = pool.pool_ids[safe_cost]
+    count = pool.pool_counts[safe_cost]
+    valid = (count > 0) & (idx >= 0) & (idx < count)
+    last_idx = jnp.clip(count - 1, 0, ids.shape[0] - 1)
+    last_id = ids[last_idx]
+    safe_idx = jnp.clip(idx, 0, ids.shape[0] - 1)
+    new_row = ids.at[safe_idx].set(jnp.where(valid, last_id, ids[safe_idx]))
+    new_row = new_row.at[last_idx].set(
+        jnp.where(valid, jnp.int32(-1), new_row[last_idx])
+    )
+    new_ids = pool.pool_ids.at[safe_cost].set(new_row)
+    new_counts = pool.pool_counts.at[safe_cost].set(
+        jnp.where(valid, count - 1, count)
+    )
+    return PoolState(pool_ids=new_ids, pool_counts=new_counts)
+
+
+def return_ids_to_pool(pool: PoolState, unit_ids: jnp.ndarray,
+                       static: StaticData) -> PoolState:
+    """Return a 1-D array of unit IDs to the pool (shop.py:49-54)."""
+
+    def body(i, pool):
+        uid = unit_ids[i]
+        cost = jnp.take(static.unit_costs, jnp.maximum(uid, 0))
+        return return_to_pool(pool, uid, cost)
+
+    return jax.lax.fori_loop(0, unit_ids.shape[0], body, pool)
+
+
+def sample_cost_tier_jax(level: jnp.ndarray, rng_key: jax.Array,
+                         shop_odds: jnp.ndarray) -> jnp.ndarray:
+    """Sample a shop cost tier from level odds (shop.py:56-66)."""
+    safe_level = jnp.clip(level, 1, 9)
+    odds = shop_odds[safe_level]
+    r = jax.random.uniform(rng_key)
+    cdf = jnp.cumsum(odds)
+    cost = jnp.argmax(cdf >= r).astype(jnp.int32)
+    return jnp.where(cost == 0, jnp.int32(1), cost)
+
+
+def roll_shop_jax(pool: PoolState, level: jnp.ndarray, rng_key: jax.Array,
+                  static: StaticData) -> tuple:
+    """Roll SHOP_SIZE units weighted by remaining pool (shop.py:68-81).
+
+    Empty tiers produce -1. Returns (new_pool, shop, new_rng_key).
+    """
+    def body(i, carry):
+        pool, shop, key = carry
+        key, cost_key, unit_key = jax.random.split(key, 3)
+        cost = sample_cost_tier_jax(level, cost_key, static.shop_odds)
+        count = pool.pool_counts[jnp.clip(cost, 0, N_COST_TIERS - 1)]
+        empty = count <= 0
+        idx = jax.random.randint(unit_key, (), 0, jnp.maximum(count, 1))
+        safe_cost = jnp.clip(cost, 0, N_COST_TIERS - 1)
+        unit_id = jnp.where(empty, jnp.int32(-1), pool.pool_ids[safe_cost, idx])
+        new_pool = reserve_index(pool, cost, idx)
+        pool = tree_where(~empty, new_pool, pool)
+        shop = shop.at[i].set(unit_id)
+        return pool, shop, key
+
+    shop = jnp.full((SHOP_SIZE,), -1, dtype=jnp.int32)
+    pool, shop, key = jax.lax.fori_loop(
+        0, SHOP_SIZE, body, (pool, shop, rng_key)
+    )
+    return pool, shop, key
+
+
+def calculate_income_jax(gold: jnp.ndarray, win_streak: jnp.ndarray,
+                         loss_streak: jnp.ndarray, stage: jnp.ndarray,
+                         round_in_stage: jnp.ndarray) -> jnp.ndarray:
+    """Gold granted at round start (state.py:137-151)."""
+    early = (stage == 1) & (round_in_stage <= 2)
+    interest = jnp.minimum(INTEREST_CAP, gold // INTEREST_GOLD_STEP)
+    streak = jnp.maximum(win_streak, loss_streak)
+    sb = jnp.where(streak >= STREAK_THRESHOLD_5, STREAK_BONUS_TIER_5,
+         jnp.where(streak >= STREAK_THRESHOLD_3, STREAK_BONUS_TIER_3,
+         jnp.where(streak >= STREAK_THRESHOLD_2, STREAK_BONUS_TIER_2, 0)))
+    normal = INCOME_BASE + interest + sb
+    return jnp.where(early, jnp.int32(INCOME_EARLY), normal.astype(jnp.int32))
+
+
+def check_level_up_jax(xp: jnp.ndarray, level: jnp.ndarray) -> tuple:
+    """Spend XP to level while xp >= XP_REQUIRED[level+1] (state.py:153-155)."""
+    def body(val):
+        xp_val, lvl = val
+        return xp_val, lvl + 1
+
+    def cond(val):
+        xp_val, lvl = val
+        return (lvl < MAX_LEVEL_INT) & (xp_val >= jnp.take(XP_REQUIRED, lvl + 1))
+
+    return jax.lax.while_loop(cond, body, (xp, level))
 
 
 # ============================================================

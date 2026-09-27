@@ -42,6 +42,12 @@ from tft_sim.jax_port.static_data import (
     ACTION_SELL_BENCH_START, ACTION_SELL_BENCH_END,
     ACTION_SELL_BOARD_START, ACTION_SELL_BOARD_END,
     ACTION_PLACE_UNIT_START, ACTION_PLACE_UNIT_END,
+    TRAIT_BREAKPOINT_REWARD, PLACEMENT_REWARD_SCALE,
+    REROLL_COST, BUY_XP_GOLD, BUY_XP_AMOUNT, PASSIVE_XP,
+    MAX_LEVEL_INT, N_PLAYERS_DEFAULT, CAROUSEL_N_OPTIONS,
+    N_ARCHETYPES,
+    trait_counts_jax, active_breakpoint_level_jax, OPPONENT_POLICY,
+    MAX_POLICY_BOTS,
 )
 from tft_sim.jax_port.game_state import (
     GameState, PlayerState, PoolState,
@@ -49,7 +55,10 @@ from tft_sim.jax_port.game_state import (
     to_observation, determine_round_type_jax,
     BOARD_SIZE, BENCH_SIZE, SHOP_SIZE,
     ROUND_CAROUSEL, ROUND_PVE, ROUND_PVP,
+    return_to_pool, return_ids_to_pool, roll_shop_jax,
+    calculate_income_jax, check_level_up_jax, tree_where,
 )
+from tft_sim.jax_port.bots import choose_bot_action, pick_carousel_unit
 from tft_sim.jax_port.combat import (
     resolve_combat_jax,
     BASE_DAMAGE, STAGE_DAMAGE_SCALE,
@@ -123,6 +132,106 @@ def compute_action_mask_jax(player: PlayerState, static: StaticData,
     return mask
 
 
+def compute_player_mask(state: GameState, player_idx: jnp.ndarray,
+                        static: StaticData) -> jnp.ndarray:
+    """Agent/bot mask including carousel restrictions (state.py:255-265)."""
+    player = jax.tree_util.tree_map(lambda x: x[player_idx], state.players)
+    is_carousel = state.round_type == ROUND_CAROUSEL
+    mask = compute_action_mask_jax(player, static, free_shop=is_carousel)
+    mask = mask.at[ACTION_BUY_XP].set(
+        jnp.where(is_carousel, jnp.int8(0), mask[ACTION_BUY_XP])
+    )
+    mask = mask.at[ACTION_REROLL].set(
+        jnp.where(is_carousel, jnp.int8(0), mask[ACTION_REROLL])
+    )
+    already_picked = state.carousel_picked[player_idx]
+    only_pass = is_carousel & already_picked
+    pass_only = jnp.zeros_like(mask).at[ACTION_PASS].set(jnp.int8(1))
+    return jnp.where(only_pass, pass_only, mask)
+
+
+def max_rounds_in_stage_jax(stage: jnp.ndarray) -> jnp.ndarray:
+    """Round cap per stage (state.py:47-53)."""
+    return jnp.where(stage == 1, jnp.int32(4),
+           jnp.where(stage == 5, jnp.int32(5), jnp.int32(6)))
+
+
+def count_copies_jax(board_ids, board_stars, bench_ids, bench_stars,
+                     unit_id, star_level):
+    """Copies of unit_id at star_level across board+bench (units.py:64-65)."""
+    valid_unit = unit_id >= 0
+    bench_n = jnp.sum(
+        (bench_ids == unit_id) & (bench_stars == star_level) & (bench_ids >= 0)
+    )
+    board_n = jnp.sum(
+        (board_ids == unit_id) & (board_stars == star_level) & (board_ids >= 0)
+    )
+    return jnp.where(valid_unit, bench_n + board_n, jnp.int32(0))
+
+
+def _clear_matches(ids, stars, unit_id, star_level, remaining):
+    """Clear up to `remaining` matching slots left-to-right. Returns remaining."""
+    def body(i, carry):
+        ids, stars, left = carry
+        match = (ids[i] == unit_id) & (stars[i] == star_level) & (ids[i] >= 0) & (left > 0)
+        ids = ids.at[i].set(jnp.where(match, jnp.int32(-1), ids[i]))
+        stars = stars.at[i].set(jnp.where(match, jnp.int32(1), stars[i]))
+        left = left - match.astype(jnp.int32)
+        return ids, stars, left
+
+    return jax.lax.fori_loop(0, ids.shape[0], body, (ids, stars, remaining))
+
+
+def try_combine_jax(board_ids, board_stars, bench_ids, bench_stars,
+                    unit_id, star_level):
+    """Auto-combine 3 copies into the next star (units.py:78-101).
+
+    Keeps combining while any star 1 or 2 has 3+ copies so a pile of
+    1-stars can cascade to 3-star in one call. Bench is consumed first.
+    """
+    def cond(carry):
+        board_ids, board_stars, bench_ids, bench_stars = carry
+        n1 = count_copies_jax(board_ids, board_stars, bench_ids, bench_stars, unit_id, jnp.int32(1))
+        n2 = count_copies_jax(board_ids, board_stars, bench_ids, bench_stars, unit_id, jnp.int32(2))
+        return (unit_id >= 0) & ((n1 >= 3) | (n2 >= 3))
+
+    def body(carry):
+        board_ids, board_stars, bench_ids, bench_stars = carry
+        n1 = count_copies_jax(board_ids, board_stars, bench_ids, bench_stars, unit_id, jnp.int32(1))
+        star_level = jnp.where(n1 >= 3, jnp.int32(1), jnp.int32(2))
+        bench_ids, bench_stars, left = _clear_matches(
+            bench_ids, bench_stars, unit_id, star_level, jnp.int32(3)
+        )
+        board_ids, board_stars, left = _clear_matches(
+            board_ids, board_stars, unit_id, star_level, left
+        )
+        new_star = star_level + 1
+        bench_empty = bench_ids < 0
+        has_bench = jnp.any(bench_empty)
+        bench_idx = jnp.argmax(bench_empty)
+        board_empty = board_ids < 0
+        has_board = jnp.any(board_empty)
+        board_idx = jnp.argmax(board_empty)
+        bench_ids = bench_ids.at[bench_idx].set(
+            jnp.where(has_bench, unit_id, bench_ids[bench_idx])
+        )
+        bench_stars = bench_stars.at[bench_idx].set(
+            jnp.where(has_bench, new_star, bench_stars[bench_idx])
+        )
+        board_ids = board_ids.at[board_idx].set(
+            jnp.where((~has_bench) & has_board, unit_id, board_ids[board_idx])
+        )
+        board_stars = board_stars.at[board_idx].set(
+            jnp.where((~has_bench) & has_board, new_star, board_stars[board_idx])
+        )
+        return board_ids, board_stars, bench_ids, bench_stars
+
+    board_ids, board_stars, bench_ids, bench_stars = jax.lax.while_loop(
+        cond, body, (board_ids, board_stars, bench_ids, bench_stars)
+    )
+    return board_ids, board_stars, bench_ids, bench_stars
+
+
 # ============================================================
 # Apply Action (mirrors state.py:267-337)
 # ============================================================
@@ -133,14 +242,8 @@ def apply_action_jax(state: GameState, player_idx: jnp.ndarray,
 
     Replaces GameState.apply_action (state.py:267-337).
     Returns a NEW GameState (no mutation).
-
-    The action is applied using functional updates: we compute the new
-    player state and return state.replace(players=new_players).
     """
     p = state.players
-
-    # Extract current player fields
-    health = p.health[player_idx]
     gold = p.gold[player_idx]
     level = p.level[player_idx]
     xp = p.xp[player_idx]
@@ -149,12 +252,11 @@ def apply_action_jax(state: GameState, player_idx: jnp.ndarray,
     bench_ids = p.bench_ids[player_idx]
     bench_stars = p.bench_stars[player_idx]
     shop = p.shop[player_idx]
+    is_carousel = state.round_type == ROUND_CAROUSEL
 
-    # --- Determine action type and apply ---
-    # We use jnp.where to branch without Python if/elif.
-    # Each action type computes its new state, and we select the right one.
+    before_counts = trait_counts_jax(board_ids, board_stars, static)
+    before_bps = active_breakpoint_level_jax(before_counts, static)
 
-    # Default: no change
     new_gold = gold
     new_xp = xp
     new_level = level
@@ -163,8 +265,10 @@ def apply_action_jax(state: GameState, player_idx: jnp.ndarray,
     new_bench_ids = bench_ids
     new_bench_stars = bench_stars
     new_shop = shop
+    new_pool = state.pool
+    rng_key = state.rng_key
+    new_carousel_picked = state.carousel_picked
 
-    is_pass = action == ACTION_PASS
     is_buy_xp = action == ACTION_BUY_XP
     is_reroll = action == ACTION_REROLL
     is_buy_unit = (action >= ACTION_BUY_UNIT_START) & (action <= ACTION_BUY_UNIT_END)
@@ -172,110 +276,94 @@ def apply_action_jax(state: GameState, player_idx: jnp.ndarray,
     is_sell_board = (action >= ACTION_SELL_BOARD_START) & (action <= ACTION_SELL_BOARD_END)
     is_place_unit = (action >= ACTION_PLACE_UNIT_START) & (action <= ACTION_PLACE_UNIT_END)
 
-    # --- BUY_XP: gold -= 4, xp += 4, check level up ---
-    # (state.py:283-286)
-    buy_xp_gold = gold - 4
-    buy_xp_xp = xp + 4
-    # Level up loop (simplified — check once, not in a while loop)
-    # In JAX, we use lax.while_loop or just check iteratively
-    def check_level_up(xp_val, level_val):
-        def body(val):
-            xp, lvl = val
-            new_lvl = lvl + 1
-            return xp, new_lvl
-        cond = lambda val: (val[1] < 9) & (val[0] >= jnp.take(XP_REQUIRED, val[1] + 1))
-        return jax.lax.while_loop(cond, body, (xp_val, level_val))
-
-    buy_xp_xp_final, buy_xp_level_final = check_level_up(buy_xp_xp, level)
-    new_gold = jnp.where(is_buy_xp, buy_xp_gold, new_gold)
+    # --- BUY_XP: gold -= 4, xp += 4, check level up (state.py:283-286) ---
+    buy_xp_xp_final, buy_xp_level_final = check_level_up_jax(xp + BUY_XP_AMOUNT, level)
+    new_gold = jnp.where(is_buy_xp, gold - BUY_XP_GOLD, new_gold)
     new_xp = jnp.where(is_buy_xp, buy_xp_xp_final, new_xp)
     new_level = jnp.where(is_buy_xp, buy_xp_level_final, new_level)
 
-    # --- REROLL: return shop to pool, roll new shop ---
-    # (state.py:288-289, shop.py:83-88)
-    # Simplified: just clear and re-roll shop (pool management omitted for now)
-    reroll_gold = gold - 2
-    # Generate new shop (simplified — just random unit IDs)
-    reroll_key = jax.random.fold_in(state.rng_key, action)
-    new_shop_reroll = jax.random.randint(
-        reroll_key, (SHOP_SIZE,), 0, static.n_units, dtype=jnp.int32
+    # --- REROLL: return shop, -2g, roll from pool (shop.py:83-88) ---
+    reroll_key, rng_after_reroll = jax.random.split(state.rng_key)
+    pool_after_return = return_ids_to_pool(state.pool, shop, static)
+    pool_after_roll, shop_reroll, rng_after_reroll = roll_shop_jax(
+        pool_after_return, level, reroll_key, static
     )
-    new_shop = jnp.where(is_reroll, new_shop_reroll, new_shop)
-    new_gold = jnp.where(is_reroll, reroll_gold, new_gold)
+    new_shop = jnp.where(is_reroll, shop_reroll, new_shop)
+    new_gold = jnp.where(is_reroll, gold - REROLL_COST, new_gold)
+    new_pool = tree_where(is_reroll, pool_after_roll, new_pool)
+    rng_key = jnp.where(is_reroll, rng_after_reroll, rng_key)
 
-    # --- BUY_UNIT: buy from shop slot ---
-    # (state.py:291-308)
-    buy_slot = action - ACTION_BUY_UNIT_START
-    buy_slot_safe = jnp.clip(buy_slot, 0, SHOP_SIZE - 1)
+    # --- BUY_UNIT: shop already reserved at roll time (state.py:291-308) ---
+    buy_slot_safe = jnp.clip(action - ACTION_BUY_UNIT_START, 0, SHOP_SIZE - 1)
     bought_unit_id = jnp.take(shop, buy_slot_safe)
     bought_unit_cost = jnp.take(static.unit_costs, jnp.maximum(bought_unit_id, 0))
-
-    # Find first empty bench slot
     bench_empty_mask = bench_ids < 0
-    bench_empty_idx = jnp.argmax(bench_empty_mask)  # first True index
-
-    # Place unit in bench
+    bench_empty_idx = jnp.argmax(bench_empty_mask)
+    can_place_buy = is_buy_unit & bench_empty_mask[bench_empty_idx]
     new_bench_buy = bench_ids.at[bench_empty_idx].set(
-        jnp.where(is_buy_unit & bench_empty_mask[bench_empty_idx], bought_unit_id, bench_ids[bench_empty_idx])
+        jnp.where(can_place_buy, bought_unit_id, bench_ids[bench_empty_idx])
     )
     new_bench_stars_buy = bench_stars.at[bench_empty_idx].set(
-        jnp.where(is_buy_unit & bench_empty_mask[bench_empty_idx], 1, bench_stars[bench_empty_idx])
+        jnp.where(can_place_buy, jnp.int32(1), bench_stars[bench_empty_idx])
     )
-
-    # Clear shop slot and deduct gold
+    comb_board, comb_board_stars, comb_bench, comb_bench_stars = try_combine_jax(
+        board_ids, board_stars, new_bench_buy, new_bench_stars_buy,
+        bought_unit_id, jnp.int32(1),
+    )
     new_shop_buy = shop.at[buy_slot_safe].set(
-        jnp.where(is_buy_unit, -1, shop[buy_slot_safe])
+        jnp.where(is_buy_unit, jnp.int32(-1), shop[buy_slot_safe])
     )
-    new_gold_buy = gold - bought_unit_cost
-
-    new_bench_ids = jnp.where(is_buy_unit, new_bench_buy, new_bench_ids)
-    new_bench_stars = jnp.where(is_buy_unit, new_bench_stars_buy, new_bench_stars)
+    gold_after_buy = jnp.where(is_carousel, gold, gold - bought_unit_cost)
+    new_board_ids = jnp.where(is_buy_unit, comb_board, new_board_ids)
+    new_board_stars = jnp.where(is_buy_unit, comb_board_stars, new_board_stars)
+    new_bench_ids = jnp.where(is_buy_unit, comb_bench, new_bench_ids)
+    new_bench_stars = jnp.where(is_buy_unit, comb_bench_stars, new_bench_stars)
     new_shop = jnp.where(is_buy_unit, new_shop_buy, new_shop)
-    new_gold = jnp.where(is_buy_unit, new_gold_buy, new_gold)
+    new_gold = jnp.where(is_buy_unit, gold_after_buy, new_gold)
+    new_carousel_picked = new_carousel_picked.at[player_idx].set(
+        jnp.where(is_buy_unit & is_carousel, True, new_carousel_picked[player_idx])
+    )
 
-    # --- SELL_BENCH: sell bench unit ---
-    # (state.py:310-315)
-    sell_bench_slot = action - ACTION_SELL_BENCH_START
-    sell_bench_slot_safe = jnp.clip(sell_bench_slot, 0, BENCH_SIZE - 1)
+    # --- SELL_BENCH: refund base cost, return one copy (state.py:310-315) ---
+    sell_bench_slot_safe = jnp.clip(action - ACTION_SELL_BENCH_START, 0, BENCH_SIZE - 1)
     sold_bench_unit_id = jnp.take(bench_ids, sell_bench_slot_safe)
     sold_bench_cost = jnp.take(static.unit_costs, jnp.maximum(sold_bench_unit_id, 0))
-
     new_bench_sell = bench_ids.at[sell_bench_slot_safe].set(
-        jnp.where(is_sell_bench, -1, bench_ids[sell_bench_slot_safe])
+        jnp.where(is_sell_bench, jnp.int32(-1), bench_ids[sell_bench_slot_safe])
     )
-    new_gold_sell = gold + sold_bench_cost
-
+    new_bench_stars_sell = bench_stars.at[sell_bench_slot_safe].set(
+        jnp.where(is_sell_bench, jnp.int32(1), bench_stars[sell_bench_slot_safe])
+    )
+    pool_sell_bench = return_to_pool(state.pool, sold_bench_unit_id, sold_bench_cost)
     new_bench_ids = jnp.where(is_sell_bench, new_bench_sell, new_bench_ids)
-    new_gold = jnp.where(is_sell_bench, new_gold_sell, new_gold)
+    new_bench_stars = jnp.where(is_sell_bench, new_bench_stars_sell, new_bench_stars)
+    new_gold = jnp.where(is_sell_bench, gold + sold_bench_cost, new_gold)
+    new_pool = tree_where(is_sell_bench, pool_sell_bench, new_pool)
 
-    # --- SELL_BOARD: sell board unit ---
-    # (state.py:317-322)
-    sell_board_slot = action - ACTION_SELL_BOARD_START
-    sell_board_slot_safe = jnp.clip(sell_board_slot, 0, BOARD_SIZE - 1)
+    # --- SELL_BOARD: refund base cost, return one copy (state.py:317-322) ---
+    sell_board_slot_safe = jnp.clip(action - ACTION_SELL_BOARD_START, 0, BOARD_SIZE - 1)
     sold_board_unit_id = jnp.take(board_ids, sell_board_slot_safe)
     sold_board_cost = jnp.take(static.unit_costs, jnp.maximum(sold_board_unit_id, 0))
-
     new_board_sell = board_ids.at[sell_board_slot_safe].set(
-        jnp.where(is_sell_board, -1, board_ids[sell_board_slot_safe])
+        jnp.where(is_sell_board, jnp.int32(-1), board_ids[sell_board_slot_safe])
     )
-    new_gold_sell_board = gold + sold_board_cost
-
+    new_board_stars_sell = board_stars.at[sell_board_slot_safe].set(
+        jnp.where(is_sell_board, jnp.int32(1), board_stars[sell_board_slot_safe])
+    )
+    pool_sell_board = return_to_pool(state.pool, sold_board_unit_id, sold_board_cost)
     new_board_ids = jnp.where(is_sell_board, new_board_sell, new_board_ids)
-    new_gold = jnp.where(is_sell_board, new_gold_sell_board, new_gold)
+    new_board_stars = jnp.where(is_sell_board, new_board_stars_sell, new_board_stars)
+    new_gold = jnp.where(is_sell_board, gold + sold_board_cost, new_gold)
+    new_pool = tree_where(is_sell_board, pool_sell_board, new_pool)
 
-    # --- PLACE_UNIT: swap bench[b] with board[d] ---
-    # (state.py:324-330)
+    # --- PLACE_UNIT: swap bench[b] with board[d] (state.py:324-330) ---
     place_idx = action - ACTION_PLACE_UNIT_START
-    place_b = place_idx // BOARD_SIZE
-    place_d = place_idx % BOARD_SIZE
-    place_b_safe = jnp.clip(place_b, 0, BENCH_SIZE - 1)
-    place_d_safe = jnp.clip(place_d, 0, BOARD_SIZE - 1)
-
+    place_b_safe = jnp.clip(place_idx // BOARD_SIZE, 0, BENCH_SIZE - 1)
+    place_d_safe = jnp.clip(place_idx % BOARD_SIZE, 0, BOARD_SIZE - 1)
     bench_unit = jnp.take(bench_ids, place_b_safe)
     bench_star = jnp.take(bench_stars, place_b_safe)
     board_unit = jnp.take(board_ids, place_d_safe)
     board_star = jnp.take(board_stars, place_d_safe)
-
     new_board_place = board_ids.at[place_d_safe].set(
         jnp.where(is_place_unit, bench_unit, board_ids[place_d_safe])
     )
@@ -288,13 +376,20 @@ def apply_action_jax(state: GameState, player_idx: jnp.ndarray,
     new_bench_stars_place = bench_stars.at[place_b_safe].set(
         jnp.where(is_place_unit, board_star, bench_stars[place_b_safe])
     )
-
     new_board_ids = jnp.where(is_place_unit, new_board_place, new_board_ids)
     new_board_stars = jnp.where(is_place_unit, new_board_stars_place, new_board_stars)
     new_bench_ids = jnp.where(is_place_unit, new_bench_place, new_bench_ids)
     new_bench_stars = jnp.where(is_place_unit, new_bench_stars_place, new_bench_stars)
 
-    # --- Write back to player ---
+    after_counts = trait_counts_jax(new_board_ids, new_board_stars, static)
+    after_bps = active_breakpoint_level_jax(after_counts, static)
+    n_new_bps = jnp.sum(after_bps > before_bps)
+    pending = jnp.where(
+        count_agent_action,
+        TRAIT_BREAKPOINT_REWARD * n_new_bps.astype(jnp.float32),
+        jnp.float32(0.0),
+    )
+
     new_players = p.replace(
         gold=p.gold.at[player_idx].set(new_gold),
         xp=p.xp.at[player_idx].set(new_xp),
@@ -305,12 +400,17 @@ def apply_action_jax(state: GameState, player_idx: jnp.ndarray,
         bench_stars=p.bench_stars.at[player_idx].set(new_bench_stars),
         shop=p.shop.at[player_idx].set(new_shop),
     )
-
-    new_actions = jnp.where(count_agent_action,
-                            state.actions_this_round + 1,
-                            state.actions_this_round)
-
-    return state.replace(players=new_players, actions_this_round=new_actions)
+    new_actions = jnp.where(
+        count_agent_action, state.actions_this_round + 1, state.actions_this_round
+    )
+    return state.replace(
+        players=new_players,
+        actions_this_round=new_actions,
+        pool=new_pool,
+        rng_key=rng_key,
+        pending_action_reward=pending,
+        carousel_picked=new_carousel_picked,
+    )
 
 
 # ============================================================
@@ -327,180 +427,506 @@ class StepResult:
     action_mask: jnp.ndarray
 
 
+def _creep_board_jax(stage: jnp.ndarray) -> tuple:
+    """Neutral creep IDs by stage (pve.py:10-18)."""
+    early = jnp.array([0, 1, 2, -1, -1, -1, -1, -1, -1, -1], dtype=jnp.int32)
+    mid = jnp.array([2, 3, 4, -1, -1, -1, -1, -1, -1, -1], dtype=jnp.int32)
+    late = jnp.array([3, 4, 5, 6, -1, -1, -1, -1, -1, -1], dtype=jnp.int32)
+    ids = jnp.where(stage <= 1, early, jnp.where(stage >= 4, late, mid))
+    stars = jnp.ones(BOARD_SIZE, dtype=jnp.int32)
+    return ids, stars
+
+
+def pair_living_players(eliminated: jnp.ndarray, rng_key: jax.Array) -> tuple:
+    """Shuffle living players and emit padded matches (state.py:206-218).
+
+    Returns (match_a, match_b, match_valid) each of length n_players//2 + 1
+    (regular pairs plus an optional ghost slot).
+    """
+    n_players = eliminated.shape[0]
+    max_pairs = n_players // 2
+    max_matches = max_pairs + 1
+    n_alive = jnp.sum(~eliminated).astype(jnp.int32)
+    k_perm, k_ghost = jax.random.split(rng_key)
+    perm = jax.random.permutation(k_perm, n_players)
+    living_first = jnp.argsort(eliminated[perm].astype(jnp.int32))
+    order = perm[living_first]
+
+    match_a = jnp.zeros(max_matches, dtype=jnp.int32)
+    match_b = jnp.zeros(max_matches, dtype=jnp.int32)
+    match_valid = jnp.zeros(max_matches, dtype=jnp.bool_)
+
+    for i in range(max_pairs):
+        valid = (2 * i + 1) < n_alive
+        match_a = match_a.at[i].set(order[2 * i])
+        match_b = match_b.at[i].set(order[2 * i + 1])
+        match_valid = match_valid.at[i].set(valid)
+
+    leftover = (n_alive % 2 == 1) & (n_alive > 1)
+    leftover_idx = order[jnp.clip(n_alive - 1, 0, n_players - 1)]
+    n_ghost_pool = jnp.clip(n_alive - 1, 1, n_players)
+    ghost_slot = jax.random.randint(k_ghost, (), 0, n_ghost_pool)
+    ghost_idx = order[ghost_slot]
+    match_a = match_a.at[max_pairs].set(leftover_idx)
+    match_b = match_b.at[max_pairs].set(ghost_idx)
+    match_valid = match_valid.at[max_pairs].set(leftover)
+    return match_a, match_b, match_valid
+
+
+def apply_match_jax(players: PlayerState, idx_a: jnp.ndarray, idx_b: jnp.ndarray,
+                    valid: jnp.ndarray, stage: jnp.ndarray,
+                    static: StaticData) -> tuple:
+    """Apply one PvP match: combat, damage, streaks (state.py:168-197, 223-233).
+
+    Ties (winner==2) are a no-op. Returns (new_players, agent_won, agent_lost).
+    """
+    winner, surv_units = resolve_combat_jax(
+        players.board_ids[idx_a], players.board_stars[idx_a],
+        players.board_ids[idx_b], players.board_stars[idx_b],
+        static,
+    )
+    damage = jnp.int32(BASE_DAMAGE + stage * STAGE_DAMAGE_SCALE + surv_units)
+    a_won = (winner == 0) & valid
+    b_won = (winner == 1) & valid
+
+    health = players.health
+    health = health.at[idx_b].set(
+        jnp.where(a_won, health[idx_b] - damage, health[idx_b])
+    )
+    health = health.at[idx_a].set(
+        jnp.where(b_won, health[idx_a] - damage, health[idx_a])
+    )
+
+    win_streak = players.win_streak
+    loss_streak = players.loss_streak
+    win_streak = win_streak.at[idx_a].set(
+        jnp.where(a_won, win_streak[idx_a] + 1,
+                  jnp.where(b_won, jnp.int32(0), win_streak[idx_a]))
+    )
+    win_streak = win_streak.at[idx_b].set(
+        jnp.where(b_won, win_streak[idx_b] + 1,
+                  jnp.where(a_won, jnp.int32(0), win_streak[idx_b]))
+    )
+    loss_streak = loss_streak.at[idx_a].set(
+        jnp.where(b_won, loss_streak[idx_a] + 1,
+                  jnp.where(a_won, jnp.int32(0), loss_streak[idx_a]))
+    )
+    loss_streak = loss_streak.at[idx_b].set(
+        jnp.where(a_won, loss_streak[idx_b] + 1,
+                  jnp.where(b_won, jnp.int32(0), loss_streak[idx_b]))
+    )
+
+    agent_won = ((idx_a == 0) & a_won) | ((idx_b == 0) & b_won)
+    agent_lost = ((idx_a == 0) & b_won) | ((idx_b == 0) & a_won)
+    new_players = players.replace(
+        health=health, win_streak=win_streak, loss_streak=loss_streak
+    )
+    return new_players, agent_won, agent_lost
+
+
+def _return_eliminated_units(state: GameState, newly_dead: jnp.ndarray,
+                             static: StaticData) -> GameState:
+    """Return board+bench of newly eliminated players to the pool (state.py:235-239)."""
+    n_players = newly_dead.shape[0]
+
+    def body(i, pool):
+        units = jnp.concatenate([
+            state.players.board_ids[i],
+            state.players.bench_ids[i],
+        ])
+        returned = return_ids_to_pool(pool, units, static)
+        return tree_where(newly_dead[i], returned, pool)
+
+    pool = jax.lax.fori_loop(0, n_players, body, state.pool)
+    return state.replace(pool=pool)
+
+
 def resolve_round_jax(state: GameState, static: StaticData) -> tuple:
     """Resolve the current round (combat + damage + rewards).
 
-    Replaces GameState.resolve_round (state.py:199-249).
+    Replaces GameState.resolve_round (state.py:199-249) and
+    resolve_pve_round (pve.py:25-56).
 
-    For PvP: agent (player 0) fights opponent (player 1). Loser takes
-    damage = BASE_DAMAGE + stage + surviving_units. Winner gets a small
-    positive reward; loser gets a small negative reward. Elimination
-    gives a large negative reward.
+    For PvP: shuffle living players, pair them, leftover fights a ghost
+    from someone who already has a match. Matches apply sequentially
+    (a ghost can take damage twice). Damage is 2 + stage + survivors.
+    After all matches, anyone with health <= 0 is eliminated and their
+    board+bench return to the pool. Agent combat reward only from matches
+    the agent is in (including a ghost match).
 
-    For PvE: agent fights creeps. Win grants gold; loss deals no HP damage.
+    For PvE: every living player fights the stage creep board. Win grants
+    gold; loss deals no HP damage. Only the agent's win/loss is rewarded.
 
     For Carousel: no combat, no reward.
 
     Returns:
         (new_state, reward, terminated)
     """
-    agent_idx = jnp.int32(0)
-    opp_idx = jnp.int32(1)
-
-    # --- Carousel: no combat ---
     is_carousel = state.round_type == ROUND_CAROUSEL
+    is_pve = state.round_type == ROUND_PVE
+    rng_key, pvp_key = jax.random.split(state.rng_key)
+    carousel_state = state.replace(rng_key=rng_key)
     carousel_reward = jnp.float32(0.0)
 
-    # --- PvE: agent vs creeps ---
-    is_pve = state.round_type == ROUND_PVE
-    # Creep board scales with stage (from pve.py:10-18)
-    creep_ids = jnp.where(state.stage <= 1,
-                         jnp.array([0, 1, 2, -1, -1, -1, -1, -1, -1, -1], dtype=jnp.int32),
-                         jnp.array([2, 3, 4, -1, -1, -1, -1, -1, -1, -1], dtype=jnp.int32))
-    creep_stars = jnp.ones(BOARD_SIZE, dtype=jnp.int32)
+    # --- PvE: every living player vs creeps (pve.py:25-56) ---
+    creep_ids, creep_stars = _creep_board_jax(state.stage)
+    drop = jnp.where(state.stage == 1, jnp.int32(PVE_GOLD_EARLY), jnp.int32(PVE_GOLD_LATE))
 
-    pve_winner, _ = resolve_combat_jax(
-        state.players.board_ids[agent_idx], state.players.board_stars[agent_idx],
-        creep_ids, creep_stars,
-        static,
+    def _pve_one(board_ids, board_stars):
+        winner, _ = resolve_combat_jax(
+            board_ids, board_stars, creep_ids, creep_stars, static
+        )
+        return winner
+
+    pve_winners = jax.vmap(_pve_one)(
+        state.players.board_ids, state.players.board_stars
     )
-    pve_won = pve_winner == 0
-    pve_gold = jnp.where(state.stage == 1, PVE_GOLD_EARLY, PVE_GOLD_LATE)
-    pve_reward = jnp.where(pve_won, PVE_REWARD_WIN, PVE_REWARD_LOSS)
-    # Add gold to agent on win
-    pve_gold_update = jnp.where(pve_won, pve_gold, jnp.int32(0))
-    pve_players = state.players.replace(
-        gold=state.players.gold.at[agent_idx].set(
-            state.players.gold[agent_idx] + pve_gold_update
+    pve_won = (pve_winners == 0) & (~state.players.is_eliminated)
+    pve_gold = state.players.gold + jnp.where(pve_won, drop, jnp.int32(0))
+    pve_state = state.replace(
+        players=state.players.replace(gold=pve_gold),
+        rng_key=rng_key,
+    )
+    agent_alive = ~state.players.is_eliminated[0]
+    pve_reward = jnp.where(
+        ~agent_alive,
+        jnp.float32(0.0),
+        jnp.where(
+            pve_winners[0] == 0, PVE_REWARD_WIN,
+            jnp.where(pve_winners[0] == 1, PVE_REWARD_LOSS, jnp.float32(0.0)),
         ),
     )
-    pve_state = state.replace(players=pve_players)
-    pve_terminated = jnp.bool_(False)  # PvE never eliminates
+    pve_terminated = jnp.bool_(False)
 
-    # --- PvP: agent vs opponent ---
-    is_pvp = state.round_type == ROUND_PVP
-    pvp_winner, surv_units = resolve_combat_jax(
-        state.players.board_ids[agent_idx], state.players.board_stars[agent_idx],
-        state.players.board_ids[opp_idx], state.players.board_stars[opp_idx],
-        static,
+    # --- PvP: shuffle / pair / ghost (state.py:206-249) ---
+    match_a, match_b, match_valid = pair_living_players(
+        state.players.is_eliminated, pvp_key
     )
-    damage = jnp.int32(BASE_DAMAGE + state.stage * STAGE_DAMAGE_SCALE + surv_units)
 
-    agent_won = pvp_winner == 0
-    agent_lost = pvp_winner == 1
+    def scan_body(carry, inputs):
+        players, agent_won, agent_lost = carry
+        idx_a, idx_b, valid = inputs
+        new_players, won, lost = apply_match_jax(
+            players, idx_a, idx_b, valid, state.stage, static
+        )
+        return (new_players, agent_won | won, agent_lost | lost), None
 
-    # Apply damage to loser
-    agent_health = state.players.health[agent_idx]
-    opp_health = state.players.health[opp_idx]
-    new_agent_health = jnp.where(agent_lost, agent_health - damage, agent_health)
-    new_opp_health = jnp.where(agent_won, opp_health - damage, opp_health)
-
-    # Update streaks
-    new_agent_win_streak = jnp.where(agent_won, state.players.win_streak[agent_idx] + 1, 0)
-    new_agent_loss_streak = jnp.where(agent_lost, state.players.loss_streak[agent_idx] + 1, 0)
-    new_opp_win_streak = jnp.where(agent_lost, state.players.win_streak[opp_idx] + 1, 0)
-    new_opp_loss_streak = jnp.where(agent_won, state.players.loss_streak[opp_idx] + 1, 0)
-
-    # Check elimination
-    agent_eliminated = new_agent_health <= 0
-    opp_eliminated = new_opp_health <= 0
-
-    pvp_players = state.players.replace(
-        health=state.players.health.at[agent_idx].set(new_agent_health).at[opp_idx].set(new_opp_health),
-        win_streak=state.players.win_streak.at[agent_idx].set(new_agent_win_streak).at[opp_idx].set(new_opp_win_streak),
-        loss_streak=state.players.loss_streak.at[agent_idx].set(new_agent_loss_streak).at[opp_idx].set(new_opp_loss_streak),
-        is_eliminated=state.players.is_eliminated.at[agent_idx].set(
-            state.players.is_eliminated[agent_idx] | agent_eliminated
-        ).at[opp_idx].set(
-            state.players.is_eliminated[opp_idx] | opp_eliminated
-        ),
+    (pvp_players, agent_won, agent_lost), _ = jax.lax.scan(
+        scan_body,
+        (state.players, jnp.bool_(False), jnp.bool_(False)),
+        (match_a, match_b, match_valid),
     )
-    pvp_state = state.replace(players=pvp_players)
+    newly_dead = (~state.players.is_eliminated) & (pvp_players.health <= 0)
+    pvp_players = pvp_players.replace(
+        is_eliminated=pvp_players.is_eliminated | newly_dead
+    )
+    pvp_state = state.replace(players=pvp_players, rng_key=rng_key)
+    pvp_state = _return_eliminated_units(pvp_state, newly_dead, static)
 
-    # PvP reward: win bonus, loss penalty, elimination penalty
-    pvp_reward = jnp.where(agent_won, REWARD_WIN, jnp.where(agent_lost, REWARD_LOSS, jnp.float32(0.0)))
-    pvp_reward = jnp.where(agent_eliminated, pvp_reward + REWARD_ELIMINATED, pvp_reward)
-    pvp_terminated = agent_eliminated
+    pvp_reward = jnp.float32(0.0)
+    pvp_reward = jnp.where(agent_won, pvp_reward + REWARD_WIN, pvp_reward)
+    pvp_reward = jnp.where(agent_lost, pvp_reward + REWARD_LOSS, pvp_reward)
+    pvp_reward = jnp.where(newly_dead[0], pvp_reward + REWARD_ELIMINATED, pvp_reward)
+    pvp_terminated = pvp_players.is_eliminated[0]
 
-    # --- Select round type branch ---
-    # Default to carousel (no-op)
     resolve_state = jax.tree_util.tree_map(
-        lambda c, p, v: jnp.where(is_carousel, c, jnp.where(is_pve, p, v)),
-        state, pve_state, pvp_state,
+        lambda c, pv, v: jnp.where(is_carousel, c, jnp.where(is_pve, pv, v)),
+        carousel_state, pve_state, pvp_state,
     )
     resolve_reward = jnp.where(is_carousel, carousel_reward,
                        jnp.where(is_pve, pve_reward, pvp_reward))
     resolve_terminated = jnp.where(is_carousel, jnp.bool_(False),
                           jnp.where(is_pve, pve_terminated, pvp_terminated))
 
-    # --- Advance round/stage ---
+    # Combat resolution does not advance stage/round — that is start_round_jax
+    # (mirrors state.py:199-249, which only increments rounds_completed).
     resolve_state = resolve_state.replace(
         rounds_completed=resolve_state.rounds_completed + 1,
         actions_this_round=jnp.int32(0),
         pending_action_reward=jnp.float32(0.0),
     )
-
-    max_rounds = jnp.where(resolve_state.stage == 1, 4,
-                  jnp.where(resolve_state.stage == 5, 5, 6))
-    next_round = resolve_state.round_in_stage + 1
-    need_stage_up = next_round > max_rounds
-    new_stage = jnp.where(need_stage_up, resolve_state.stage + 1, resolve_state.stage)
-    new_round = jnp.where(need_stage_up, 1, next_round)
-    new_round_type = determine_round_type_jax(new_stage, new_round)
-
-    resolve_state = resolve_state.replace(
-        stage=new_stage,
-        round_in_stage=new_round,
-        round_type=new_round_type,
-    )
-
     return resolve_state, resolve_reward, resolve_terminated
 
 
-def step_jax(state: GameState, action: jnp.ndarray, static: StaticData) -> StepResult:
+def start_round_jax(state: GameState, static: StaticData) -> GameState:
+    """Advance stage/round and grant income + shops (state.py:108-135)."""
+    max_rounds = max_rounds_in_stage_jax(state.stage)
+    need_stage_up = state.round_in_stage >= max_rounds
+    new_stage = jnp.where(need_stage_up, state.stage + 1, state.stage)
+    new_round = jnp.where(need_stage_up, jnp.int32(1), state.round_in_stage + 1)
+    new_round_type = determine_round_type_jax(new_stage, new_round)
+    n_players = state.players.health.shape[0]
+    is_carousel = new_round_type == ROUND_CAROUSEL
+    grant_xp = (new_stage > 1) | (new_round > 1)
+
+    key, car_key = jax.random.split(state.rng_key)
+    perm = jax.random.permutation(car_key, static.n_units)
+    car_opts = perm[:CAROUSEL_N_OPTIONS]
+    car_shop = jnp.full((SHOP_SIZE,), -1, dtype=jnp.int32).at[:CAROUSEL_N_OPTIONS].set(car_opts)
+
+    state = state.replace(
+        stage=new_stage,
+        round_in_stage=new_round,
+        round_type=new_round_type,
+        actions_this_round=jnp.int32(0),
+        carousel_picked=jnp.zeros(n_players, dtype=jnp.bool_),
+        carousel_options=car_opts,
+        rng_key=key,
+    )
+
+    def player_body(i, carry):
+        state, key = carry
+        p = state.players
+        alive = ~p.is_eliminated[i]
+        income = calculate_income_jax(
+            p.gold[i], p.win_streak[i], p.loss_streak[i],
+            new_stage, new_round,
+        )
+        xp = p.xp[i] + jnp.where(grant_xp & ~is_carousel, jnp.int32(PASSIVE_XP), jnp.int32(0))
+        xp, level = check_level_up_jax(xp, p.level[i])
+        gold = p.gold[i] + jnp.where(is_carousel, jnp.int32(0), income)
+        xp = jnp.where(alive, xp, p.xp[i])
+        level = jnp.where(alive, level, p.level[i])
+        gold = jnp.where(alive, gold, p.gold[i])
+
+        pool_after_return = return_ids_to_pool(state.pool, p.shop[i], static)
+        key, shop_key = jax.random.split(key)
+        rolled_pool, rolled_shop, key = roll_shop_jax(
+            pool_after_return, level, shop_key, static
+        )
+        shop = jnp.where(is_carousel, car_shop, rolled_shop)
+        pool = tree_where(is_carousel, pool_after_return, rolled_pool)
+        shop = jnp.where(alive, shop, p.shop[i])
+        pool = tree_where(alive, pool, state.pool)
+
+        players = p.replace(
+            gold=p.gold.at[i].set(gold),
+            xp=p.xp.at[i].set(xp),
+            level=p.level.at[i].set(level),
+            shop=p.shop.at[i].set(shop),
+        )
+        return state.replace(players=players, pool=pool), key
+
+    state, key = jax.lax.fori_loop(
+        0, n_players, player_body, (state, state.rng_key)
+    )
+    return state.replace(rng_key=key)
+
+
+def assign_bot_strategies_jax(state: GameState) -> GameState:
+    """Random archetype per opponent (bot.py:247-253)."""
+    n_players = state.players.health.shape[0]
+    key, strat_key = jax.random.split(state.rng_key)
+    ids = jax.random.randint(strat_key, (n_players,), 0, N_ARCHETYPES, dtype=jnp.int32)
+    ids = ids.at[0].set(jnp.int32(0))
+    return state.replace(
+        players=state.players.replace(bot_strategy_id=ids),
+        rng_key=key,
+    )
+
+
+def reset_from_template(template: GameState, rng_key: jax.Array,
+                        static: StaticData,
+                        n_policy_bots: jnp.ndarray = jnp.int32(0)) -> GameState:
+    """JIT-safe reset: copy a Python-built template, then start_round.
+
+    make_pool uses NumPy, so it cannot run under jit. The template is
+    created once on the host and closed over / stored on TrainState.
+    """
+    state = template.replace(rng_key=rng_key)
+    state = assign_bot_strategies_jax(state)
+    state = apply_policy_slots_jax(state, n_policy_bots)
+    return start_round_jax(state, static)
+
+
+def reset_jax(static: StaticData, rng_key: jax.Array,
+              n_players: int = N_PLAYERS_DEFAULT) -> GameState:
+    """Fresh episode: make state, assign bots, start first round (tft_env.py:62-74)."""
+    template = make_game_state(n_players, static, rng_key)
+    return reset_from_template(template, rng_key, static)
+
+
+def agent_placement_jax(state: GameState) -> jnp.ndarray:
+    """Agent finish rank 1 (best) through n_players (metrics.py:19-27).
+
+    Living players sort by health descending, then eliminated players in
+    original index order. Returns the agent's 1-based rank.
+    """
+    n = state.players.health.shape[0]
+    eliminated = state.players.is_eliminated
+    health = state.players.health
+    idx = jnp.arange(n, dtype=jnp.int32)
+    health_sort = jnp.where(~eliminated, -health, jnp.int32(0))
+    order = jnp.lexsort((idx, health_sort, eliminated.astype(jnp.int32)))
+    return jnp.argmax(order == 0).astype(jnp.int32) + 1
+
+
+def is_last_player_standing_jax(state: GameState) -> jnp.ndarray:
+    """True when at most one player is still alive (state.py:251-253)."""
+    n_alive = jnp.sum(~state.players.is_eliminated)
+    return n_alive <= 1
+
+
+def placement_reward_jax(placement: jnp.ndarray) -> jnp.ndarray:
+    """Terminal bonus (metrics.py:14-16)."""
+    return (9.0 - placement.astype(jnp.float32)) * PLACEMENT_REWARD_SCALE
+
+
+def run_bot_planning_phase_jax(state: GameState, static: StaticData) -> GameState:
+    """Opponents act until PASS or budget (bot.py:256-287).
+
+    Shared pool means players must be scanned sequentially, not vmapped.
+    Policy-bot slots (opponent_type == OPPONENT_POLICY) are skipped here;
+    they act via run_policy_bot_planning_jax when frozen params are provided.
+    """
+    n_players = state.players.health.shape[0]
+    is_carousel = state.round_type == ROUND_CAROUSEL
+    budget = jnp.take(ACTION_BUDGETS, state.stage)
+
+    def one_action(player_idx, state):
+        p = jax.tree_util.tree_map(lambda x: x[player_idx], state.players)
+        skip = p.is_agent | p.is_eliminated | (p.opponent_type == OPPONENT_POLICY)
+        mask = compute_player_mask(state, player_idx, static)
+        scripted = jnp.where(
+            is_carousel,
+            pick_carousel_unit(mask),
+            choose_bot_action(p, mask, static, p.bot_strategy_id),
+        )
+        action = jnp.where(skip, jnp.int32(ACTION_PASS), scripted)
+        return apply_action_jax(
+            state, player_idx, action, static, count_agent_action=False
+        )
+
+    def player_plan(player_idx, state):
+        def body(_i, state):
+            return one_action(player_idx, state)
+        n_steps = jnp.where(is_carousel, jnp.int32(1), budget)
+        return jax.lax.fori_loop(0, n_steps, body, state)
+
+    def all_body(player_idx, state):
+        return player_plan(player_idx, state)
+
+    return jax.lax.fori_loop(0, n_players, all_body, state)
+
+
+MASK_LOGIT = -1e8
+
+
+def apply_policy_slots_jax(state: GameState, n_policy_bots: jnp.ndarray) -> GameState:
+    """Mark the first N opponent slots as frozen policy bots."""
+    types = state.players.opponent_type
+    idxs = state.players.policy_bot_index
+    for i in range(MAX_POLICY_BOTS):
+        pid = i + 1
+        use = jnp.int32(i) < n_policy_bots
+        types = types.at[pid].set(
+            jnp.where(use, jnp.int32(OPPONENT_POLICY), jnp.int32(0))
+        )
+        idxs = idxs.at[pid].set(jnp.where(use, jnp.int32(i), jnp.int32(-1)))
+    return state.replace(
+        players=state.players.replace(opponent_type=types, policy_bot_index=idxs)
+    )
+
+
+def run_policy_bot_planning_jax(state: GameState, static: StaticData,
+                                frozen_params, n_policy_bots, apply_fn) -> GameState:
+    """Frozen-policy opponents (policy_bot.py:71-96). apply_fn is model.apply."""
+    if apply_fn is None:
+        return state
+    n_players = state.players.health.shape[0]
+    is_carousel = state.round_type == ROUND_CAROUSEL
+    budget = jnp.take(ACTION_BUDGETS, state.stage)
+
+    def one_action(player_idx, carry):
+        state, key = carry
+        p = jax.tree_util.tree_map(lambda x: x[player_idx], state.players)
+        is_policy = (
+            (p.opponent_type == OPPONENT_POLICY)
+            & (~p.is_eliminated)
+            & (~p.is_agent)
+            & (n_policy_bots > 0)
+        )
+        mask = compute_player_mask(state, player_idx, static)
+        obs = to_observation(state, player_idx, static)
+        bot_idx = jnp.clip(p.policy_bot_index, 0, MAX_POLICY_BOTS - 1)
+        params_i = jax.tree_util.tree_map(lambda x: x[bot_idx], frozen_params)
+        logits, _ = apply_fn(params_i, obs)
+        masked = jnp.where(mask == 1, logits, MASK_LOGIT)
+        key, akey = jax.random.split(key)
+        sampled = jax.random.categorical(akey, masked).astype(jnp.int32)
+        chosen = jnp.where(is_carousel, pick_carousel_unit(mask), sampled)
+        action = jnp.where(is_policy, chosen, jnp.int32(ACTION_PASS))
+        state = apply_action_jax(
+            state, player_idx, action, static, count_agent_action=False
+        )
+        return state, key
+
+    def player_plan(player_idx, carry):
+        def body(_i, carry):
+            return one_action(player_idx, carry)
+        n_steps = jnp.where(is_carousel, jnp.int32(1), budget)
+        return jax.lax.fori_loop(0, n_steps, body, carry)
+
+    def all_body(player_idx, carry):
+        return player_plan(player_idx, carry)
+
+    state, key = jax.lax.fori_loop(
+        0, n_players, all_body, (state, state.rng_key)
+    )
+    return state.replace(rng_key=key)
+
+
+def step_jax(state: GameState, action: jnp.ndarray, static: StaticData,
+             frozen_params=None, n_policy_bots: jnp.ndarray = jnp.int32(0),
+             apply_fn=None) -> StepResult:
     """Execute one environment step.
 
     Replaces TFTEnv.step (tft_env.py:87-118).
 
     If action == PASS or action budget exceeded:
+        - Opponents plan (scripted / policy bots)
         - Resolve round (combat, damage, rewards)
-        - Check termination
-        - Start next round
+        - Check termination / last-player-standing
+        - Start next round if the episode continues
 
     Otherwise:
         - Apply planning action
-        - Return small reward (trait breakpoint)
+        - Return trait-breakpoint reward
     """
-    agent_idx = jnp.int32(0)  # player 0 is always the agent
+    agent_idx = jnp.int32(0)
     action_budget = jnp.take(ACTION_BUDGETS, state.stage)
     budget_exceeded = state.actions_this_round >= action_budget
     is_pass_or_done = (action == ACTION_PASS) | budget_exceeded
 
-    # --- Planning branch: apply action ---
-    planning_state = apply_action_jax(state, agent_idx, action, static,
-                                       count_agent_action=True)
-    planning_reward = state.pending_action_reward  # trait breakpoint reward
+    planning_state = apply_action_jax(
+        state, agent_idx, action, static, count_agent_action=True
+    )
+    planning_reward = planning_state.pending_action_reward
     planning_terminated = jnp.bool_(False)
     planning_truncated = jnp.bool_(False)
 
-    # --- Round resolution branch: resolve combat, advance round ---
-    resolve_state, resolve_reward, resolve_terminated = resolve_round_jax(state, static)
-    resolve_truncated = jnp.bool_(False)
-
-    # Select branch using tree_map (jnp.where doesn't work on PyTrees)
-    new_state = jax.tree_util.tree_map(
-        lambda a, b: jnp.where(is_pass_or_done, b, a),
-        planning_state, resolve_state,
+    bot_state = run_bot_planning_phase_jax(state, static)
+    bot_state = run_policy_bot_planning_jax(
+        bot_state, static, frozen_params, n_policy_bots, apply_fn
     )
+    resolve_state, resolve_reward, resolve_terminated = resolve_round_jax(
+        bot_state, static
+    )
+    resolve_truncated = is_last_player_standing_jax(resolve_state) & (~resolve_terminated)
+    episode_done = resolve_terminated | resolve_truncated
+    resolve_reward = resolve_reward + jnp.where(
+        episode_done, placement_reward_jax(agent_placement_jax(resolve_state)), jnp.float32(0.0)
+    )
+    continued = start_round_jax(resolve_state, static)
+    resolve_state = tree_where(episode_done, resolve_state, continued)
 
+    new_state = tree_where(is_pass_or_done, resolve_state, planning_state)
     reward = jnp.where(is_pass_or_done, resolve_reward, planning_reward)
     terminated = jnp.where(is_pass_or_done, resolve_terminated, planning_terminated)
     truncated = jnp.where(is_pass_or_done, resolve_truncated, planning_truncated)
 
-    # Build observation and action mask for the new state
     obs = to_observation(new_state, agent_idx, static)
-    agent_player = jax.tree_util.tree_map(lambda x: x[agent_idx], new_state.players)
-    mask = compute_action_mask_jax(agent_player, static)
+    mask = compute_player_mask(new_state, agent_idx, static)
 
     return StepResult(
         state=new_state,
@@ -510,7 +936,6 @@ def step_jax(state: GameState, action: jnp.ndarray, static: StaticData) -> StepR
         observation=obs,
         action_mask=mask,
     )
-
 
 # ============================================================
 # Verification

@@ -20,10 +20,13 @@ import optax
 from flax.struct import dataclass as flax_dataclass
 from typing import Any, NamedTuple
 
-from tft_sim.jax_port.static_data import StaticData, load_static_data
+from tft_sim.jax_port.static_data import StaticData, load_static_data, TOTAL_ACTIONS, MAX_POLICY_BOTS
 from tft_sim.jax_port.game_state import GameState, make_game_state, to_observation
-from tft_sim.jax_port.step import step_jax, compute_action_mask_jax, StepResult
-from tft_sim.jax_port.static_data import TOTAL_ACTIONS
+from tft_sim.jax_port.step import (
+    step_jax, compute_action_mask_jax, compute_player_mask, StepResult, reset_jax,
+    reset_from_template, agent_placement_jax,
+)
+from tft_sim.jax_port.game_state import tree_where
 
 import logging
 
@@ -187,19 +190,18 @@ class RolloutBatch:
     last_obs: jnp.ndarray       # (obs_dim,)
     last_mask: jnp.ndarray      # (action_dim,)
     last_done: jnp.ndarray      # scalar bool
+    placements: jnp.ndarray     # (n_steps,) int32, 0 if not done
 
 
 def ppo_update(params: dict, opt_state: dict, model: nn.Module,
                batch: RolloutBatch, config: PPOConfig,
-               progress: float) -> tuple:
-    """One PPO update epoch over the rollout buffer.
+               progress: float, rng_key: jax.Array) -> tuple:
+    """k_epochs of minibatch PPO (train.py:228-288).
 
-    Replaces MaskedPPO.update (train.py:228-288).
-
-    Returns: (new_params, new_opt_state, loss_dict)
+    Returns: (new_params, new_opt_state, loss_dict, rng_key)
     """
-    # Compute GAE
     _, last_value = model.apply(params, batch.last_obs)
+    last_value = jnp.where(batch.last_done, jnp.float32(0.0), last_value)
     advantages = compute_gae(
         batch.rewards, batch.values, batch.dones,
         last_value, config.gamma, config.gae_lambda,
@@ -207,36 +209,70 @@ def ppo_update(params: dict, opt_state: dict, model: nn.Module,
     returns = advantages + batch.values
     advantages = (advantages - jnp.mean(advantages)) / (jnp.std(advantages) + 1e-7)
 
-    # LR schedule
     lr = config.learning_rate + (config.learning_rate_end - config.learning_rate) * progress
-    ent_coef = config.entropy_coef_start + (config.entropy_coef_end - config.entropy_coef_start) * progress
+    ent_coef = config.entropy_coef_start + (
+        config.entropy_coef_end - config.entropy_coef_start
+    ) * progress
+    n = batch.observations.shape[0]
+    mb = int(config.mini_batch_size)
+    n_minibatches = max(1, n // mb)
+    k_epochs = int(config.k_epochs)
 
-    def loss_fn(params):
-        logits, values = model.apply(params, batch.observations)
-        masked_logits = jnp.where(batch.masks == 1, logits, MASK_LOGIT)
+    def minibatch_loss(params, idx):
+        obs = batch.observations[idx]
+        acts = batch.actions[idx]
+        old_lp = batch.log_probs[idx]
+        adv = advantages[idx]
+        ret = returns[idx]
+        masks = batch.masks[idx]
+        logits, values = model.apply(params, obs)
+        masked_logits = jnp.where(masks == 1, logits, MASK_LOGIT)
         log_probs_all = jax.nn.log_softmax(masked_logits)
-        log_probs = jnp.take_along_axis(log_probs_all, batch.actions[:, None], axis=1).squeeze(-1)
+        log_probs = jnp.take_along_axis(
+            log_probs_all, acts[:, None], axis=1
+        ).squeeze(-1)
         entropy = -jnp.sum(jnp.exp(log_probs_all) * log_probs_all, axis=-1).mean()
-
-        ratios = jnp.exp(log_probs - batch.log_probs)
-        surr1 = ratios * advantages
-        surr2 = jnp.clip(ratios, 1 - config.eps_clip, 1 + config.eps_clip) * advantages
+        ratios = jnp.exp(log_probs - old_lp)
+        surr1 = ratios * adv
+        surr2 = jnp.clip(ratios, 1 - config.eps_clip, 1 + config.eps_clip) * adv
         policy_loss = -jnp.minimum(surr1, surr2).mean()
-        value_loss = jnp.mean((values - returns) ** 2)
+        value_loss = jnp.mean((values - ret) ** 2)
         loss = policy_loss + config.value_loss_coef * value_loss - ent_coef * entropy
         return loss, (policy_loss, value_loss, entropy)
 
-    (loss, (policy_loss, value_loss, entropy)), grads = jax.value_and_grad(loss_fn, has_aux=True)(params)
-    updates, new_opt_state = optax.chain(
-        optax.clip_by_global_norm(config.max_grad_norm),
-        optax.adam(learning_rate=lr),
-    ).update(grads, opt_state, params)
-    new_params = optax.apply_updates(params, updates)
+    def epoch_body(carry, _):
+        params, opt_state, rng_key = carry
+        rng_key, perm_key = jax.random.split(rng_key)
+        perm = jax.random.permutation(perm_key, n)
 
-    return new_params, new_opt_state, {
+        def mb_body(i, carry):
+            params, opt_state = carry
+            start = i * mb
+            idx = jax.lax.dynamic_slice(perm, (start,), (mb,))
+            (loss, aux), grads = jax.value_and_grad(minibatch_loss, has_aux=True)(params, idx)
+            updates, opt_state = optax.chain(
+                optax.clip_by_global_norm(config.max_grad_norm),
+                optax.adam(learning_rate=lr),
+            ).update(grads, opt_state, params)
+            params = optax.apply_updates(params, updates)
+            return params, opt_state
+
+        params, opt_state = jax.lax.fori_loop(
+            0, n_minibatches, mb_body, (params, opt_state)
+        )
+        return (params, opt_state, rng_key), None
+
+    (params, opt_state, rng_key), _ = jax.lax.scan(
+        epoch_body, (params, opt_state, rng_key), None, length=k_epochs
+    )
+    # Report loss on the full buffer after the last epoch
+    loss, (policy_loss, value_loss, entropy) = minibatch_loss(
+        params, jnp.arange(min(mb, n))
+    )
+    return params, opt_state, {
         "loss": loss, "policy_loss": policy_loss,
         "value_loss": value_loss, "entropy": entropy,
-    }
+    }, rng_key
 
 
 # ============================================================
@@ -244,7 +280,8 @@ def ppo_update(params: dict, opt_state: dict, model: nn.Module,
 # ============================================================
 def collect_rollout(params: dict, model: nn.Module, state: GameState,
                     static: StaticData, rng_key: jax.Array,
-                    config: PPOConfig) -> tuple:
+                    config: PPOConfig, env_template: GameState,
+                    frozen_params, n_policy_bots) -> tuple:
     """Collect a rollout of n_steps.
 
     Uses jax.lax.scan to step the env n_steps times, collecting
@@ -257,15 +294,22 @@ def collect_rollout(params: dict, model: nn.Module, state: GameState,
     def scan_step(carry, _):
         state, rng_key = carry
         obs = to_observation(state, jnp.int32(0), static)
-        agent_player = jax.tree_util.tree_map(lambda x: x[0], state.players)
-        mask = compute_action_mask_jax(agent_player, static)
+        mask = compute_player_mask(state, jnp.int32(0), static)
 
         action, log_prob, value, rng_key = select_action(
             params, model, obs, mask, rng_key
         )
 
-        result = step_jax(state, action, static)
-        new_state = result.state
+        result = step_jax(
+            state, action, static, frozen_params, n_policy_bots, model.apply
+        )
+        done = result.terminated | result.truncated
+        reset_key, rng_key = jax.random.split(result.state.rng_key)
+        fresh = reset_from_template(
+            env_template, reset_key, static, n_policy_bots
+        )
+        new_state = tree_where(done, fresh, result.state)
+        placement = agent_placement_jax(result.state)
 
         transition = {
             "observation": obs,
@@ -274,7 +318,8 @@ def collect_rollout(params: dict, model: nn.Module, state: GameState,
             "value": value,
             "reward": result.reward,
             "mask": mask,
-            "done": result.terminated | result.truncated,
+            "done": done,
+            "placement": jnp.where(done, placement, jnp.int32(0)),
         }
         return (new_state, rng_key), transition
 
@@ -294,10 +339,9 @@ def collect_rollout(params: dict, model: nn.Module, state: GameState,
         masks=transitions["mask"],
         dones=transitions["done"],
         last_obs=to_observation(final_state, jnp.int32(0), static),
-        last_mask=compute_action_mask_jax(
-            jax.tree_util.tree_map(lambda x: x[0], final_state.players), static
-        ),
+        last_mask=compute_player_mask(final_state, jnp.int32(0), static),
         last_done=transitions["done"][-1],
+        placements=transitions["placement"],
     )
 
     return batch, final_state, final_rng_key
@@ -312,8 +356,21 @@ class TrainState:
     params: dict
     opt_state: dict
     env_state: GameState
+    env_template: GameState
+    frozen_params: dict
+    n_policy_bots: jnp.ndarray
     rng_key: jax.Array
     step: int
+
+
+def stack_frozen_params(params, n: int = MAX_POLICY_BOTS):
+    """Leading-dim stack of policy snapshots for JIT policy-bot dispatch."""
+    return jax.tree_util.tree_map(lambda x: jnp.stack([x] * n), params)
+
+
+def insert_frozen_snapshot(frozen_params, params, idx: int):
+    """Write current params into frozen slot `idx` (host-side graduation)."""
+    return jax.tree_util.tree_map(lambda f, p: f.at[idx].set(p), frozen_params, params)
 
 
 def create_train_state(model: nn.Module, static: StaticData,
@@ -332,12 +389,17 @@ def create_train_state(model: nn.Module, static: StaticData,
 
     # Init env
     env_key, rng_key = jax.random.split(rng_key)
-    env_state = make_game_state(8, static, env_key)
+    env_template = make_game_state(8, static, env_key)
+    env_state = reset_from_template(env_template, env_key, static)
+    frozen_params = stack_frozen_params(params)
 
     return TrainState(
         params=params,
         opt_state=opt_state,
         env_state=env_state,
+        env_template=env_template,
+        frozen_params=frozen_params,
+        n_policy_bots=jnp.int32(0),
         rng_key=rng_key,
         step=jnp.int32(0),
     )
@@ -353,28 +415,41 @@ def train_step(train_state: TrainState, model: nn.Module,
     # Collect rollout
     batch, final_env_state, final_rng_key = collect_rollout(
         train_state.params, model, train_state.env_state,
-        static, train_state.rng_key, config,
+        static, train_state.rng_key, config, train_state.env_template,
+        train_state.frozen_params, train_state.n_policy_bots,
     )
 
-    # PPO update
     progress = jnp.float32(train_state.step * config.n_steps / total_timesteps)
-    new_params, new_opt_state, loss_dict = ppo_update(
+    new_params, new_opt_state, loss_dict, final_rng_key = ppo_update(
         train_state.params, train_state.opt_state, model,
-        batch, config, progress,
+        batch, config, progress, final_rng_key,
     )
 
     new_train_state = TrainState(
         params=new_params,
         opt_state=new_opt_state,
         env_state=final_env_state,
+        env_template=train_state.env_template,
+        frozen_params=train_state.frozen_params,
+        n_policy_bots=train_state.n_policy_bots,
         rng_key=final_rng_key,
         step=train_state.step + 1,
     )
 
+    n_done = jnp.sum(batch.dones)
+    mean_placement = jnp.where(
+        n_done > 0,
+        jnp.sum(batch.placements.astype(jnp.float32)) / jnp.maximum(n_done, 1),
+        jnp.float32(0.0),
+    )
     metrics = {
         "step": train_state.step,
         "mean_reward": jnp.mean(batch.rewards),
         "mean_value": jnp.mean(batch.values),
+        "episodes_done": n_done,
+        "mean_placement": mean_placement,
+        "placements": batch.placements,
+        "dones": batch.dones,
         **loss_dict,
     }
 
@@ -412,8 +487,7 @@ if __name__ == "__main__":
     # --- Test action selection ---
     logger.info(f"\n--- Action selection ---")
     obs = to_observation(train_state.env_state, jnp.int32(0), static)
-    agent_player = jax.tree_util.tree_map(lambda x: x[0], train_state.env_state.players)
-    mask = compute_action_mask_jax(agent_player, static)
+    mask = compute_player_mask(train_state.env_state, jnp.int32(0), static)
     action, log_prob, value, _ = select_action(
         train_state.params, model, obs, mask, key
     )
@@ -437,7 +511,8 @@ if __name__ == "__main__":
     logger.info(f"\n--- Rollout collection ({config.n_steps} steps) ---")
     batch, final_state, final_key = collect_rollout(
         train_state.params, model, train_state.env_state,
-        static, key, config,
+        static, key, config, train_state.env_template,
+        train_state.frozen_params, train_state.n_policy_bots,
     )
     logger.info(f"  Observations shape: {batch.observations.shape}")
     logger.info(f"  Actions shape: {batch.actions.shape}")
@@ -448,9 +523,9 @@ if __name__ == "__main__":
 
     # --- Test PPO update ---
     logger.info(f"\n--- PPO update (1 epoch) ---")
-    new_params, new_opt_state, loss_dict = ppo_update(
+    new_params, new_opt_state, loss_dict, _ = ppo_update(
         train_state.params, train_state.opt_state, model,
-        batch, config, jnp.float32(0.0),
+        batch, config, jnp.float32(0.0), key,
     )
     logger.info(f"  Loss: {loss_dict['loss']:.4f}")
     logger.info(f"  Policy loss: {loss_dict['policy_loss']:.4f}")
